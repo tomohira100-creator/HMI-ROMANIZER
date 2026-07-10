@@ -87,6 +87,7 @@ class _Token:
 
 
 _DIGITS_ONLY = re.compile(r"^[0-9０-９]+$")
+_PROLONGED_ONLY = re.compile(r"^[ー－]+$")
 
 
 def _tokenize(text):
@@ -259,14 +260,23 @@ class _Word:
         self.surface = token.surface
 
     def absorb(self, token):
-        self.pron += token.pron
-        self.kana += token.kana or token.pron
+        # An absorbed token may have no reading of its own -- a lone prolonged
+        # sound mark, or kana UniDic does not know. Fall back to its kana
+        # surface so the reading is not silently dropped.
+        fallback = _kana_surface_reading(token.surface) or ""
+        self.pron += token.pron or fallback
+        self.kana += token.kana or token.pron or fallback
         self.surface += token.surface
 
 
 def _joins_left(token, previous):
     if previous is None or previous.literal is not None:
         return False
+    if _PROLONGED_ONLY.match(token.surface):
+        # A prolonged sound mark can never begin a word. MeCab emits it as its
+        # own token when the word around it is unknown (くまーる), which would
+        # otherwise romanize to an empty atom and leave a doubled space.
+        return True
     if token.pos1 == "接尾辞":
         return True
     if (
@@ -333,6 +343,25 @@ def _group_words(tokens):
 
 _PRONUNCIATION_SHIFTS = {("ハ", "ワ"), ("ヘ", "エ"), ("ヲ", "オ")}
 
+#: Words UniDic does not know arrive with a 6-field feature vector and no
+#: reading at all. When the surface is written in kana that is not a problem:
+#: kana is a reading. NFKC folds halfwidth katakana (ﾎﾃﾙ) to fullwidth, and
+#: hiragana is shifted into katakana so one romanization table serves both.
+_KANA_ONLY = re.compile(r"^[ぁ-ゖァ-ヺーヽヾ]+$")
+
+_HIRAGANA_TO_KATAKANA = 0x30A1 - 0x3041
+
+
+def _kana_surface_reading(surface):
+    """The katakana reading of an all-kana surface, or None if not all kana."""
+    folded = unicodedata.normalize("NFKC", surface)
+    if not folded or not _KANA_ONLY.match(folded):
+        return None
+    return "".join(
+        chr(ord(char) + _HIRAGANA_TO_KATAKANA) if "ぁ" <= char <= "ゖ" else char
+        for char in folded
+    )
+
 
 def _reading(word):
     kana, pron = word.kana, word.pron
@@ -391,10 +420,20 @@ def _in(code, span):
     return span[0] <= code <= span[1]
 
 
+#: The katakana middle dot lives inside the katakana block (U+30FB) but is
+#: punctuation, not a letter. Classifying it as Japanese sends it to MeCab,
+#: which returns it as a word-like atom, and 面接・試験 comes out as
+#: "Mensetsu ・ Shiken" with spaces the PRD does not want. The prolonged sound
+#: mark U+30FC, its neighbour, is a genuine letter and must stay Japanese.
+_KATAKANA_PUNCTUATION = "・･"
+
+
 def _classify(char):
     code = ord(char)
     if char.isspace() or code == 0x3000:
         return _SPACE
+    if char in _KATAKANA_PUNCTUATION:
+        return _PUNCT
     if char.isdigit() and (char.isascii() or _in(code, (0xFF10, 0xFF19))):
         return _DIGIT
     if char.isascii() and char.isalpha():
@@ -472,42 +511,59 @@ def _cased_latin(text, dic):
     return text
 
 
-def _romanize_japanese(run, dic):
+def _romanize_japanese(run, dic, offset):
     # Precedence: override > counter table > MeCab's own reading.
     tokens = _tokenize(run)
     tokens = _apply_overrides(tokens, dic)
     tokens = _apply_counters(tokens)
     words = _group_words(tokens)
 
+    # Every transformation above preserves surfaces, so the words' surfaces
+    # concatenate back to the run. That invariant is what lets us hand each
+    # atom a source range, which is what the DOCX handler needs to decide
+    # which w:r run an output word belongs to.
     atoms = []
+    position = offset
     for word in words:
+        start = position
+        position += len(word.surface)
+        end = position
+
         if word.literal is not None:
-            atoms.append(("ROMAJI", word.literal, word))
+            atoms.append(("ROMAJI", word.literal, word, start, end))
             continue
         if _DIGITS_ONLY.match(word.surface):
-            atoms.append(("ROMAJI", word.surface, word))
+            atoms.append(("ROMAJI", word.surface, word, start, end))
             continue
         pron, kana = _reading(word)
         if not pron:
-            # No reading: an unknown token. Emit the surface rather than drop it.
-            atoms.append(("ROMAJI", word.surface, word))
+            fallback = _kana_surface_reading(word.surface)
+            if fallback is not None:
+                # UniDic has no entry, but the surface is kana, and kana IS a
+                # reading. Foreign names and loanwords absent from the lexicon
+                # (アミット, ビサ) would otherwise pass through as Japanese.
+                atoms.append(("ROMAJI", kana_to_romaji(fallback), word, start, end))
+                continue
+            # Unknown kanji: we have no reading and cannot invent one. Emit the
+            # surface rather than drop the text.
+            atoms.append(("ROMAJI", word.surface, word, start, end))
             continue
         romaji = kana_to_romaji(pron, kana)
-        atoms.append(("ROMAJI", romaji, word))
+        atoms.append(("ROMAJI", romaji, word, start, end))
     return atoms
 
 
 def _apply_case(atoms, dic):
     out = []
     seen_word = False
-    for kind, text, word in atoms:
+    for kind, text, word, start, end in atoms:
         if kind != "ROMAJI" or word is None:
-            out.append((kind, text))
+            out.append((kind, text, start, end))
             if kind in _WORDLIKE:
                 seen_word = True
             continue
         if _DIGITS_ONLY.match(text) or (word.literal is not None):
-            out.append((kind, text))
+            out.append((kind, text, start, end))
             seen_word = True
             continue
         lower = text.lower()
@@ -516,19 +572,35 @@ def _apply_case(atoms, dic):
             and word.pos1 in _LOWERCASE_POS
             and lower in LOWERCASE_WORDS
         )
-        out.append((kind, text if keep_lower else _capitalize(text)))
+        out.append((kind, text if keep_lower else _capitalize(text), start, end))
         seen_word = True
     return out
 
 
-def romanize(text, dic=None):
-    """Romanize Japanese text into Modified Hepburn, preserving everything else."""
+def _check_text(text):
     if text is None:
         raise TypeError("romanize() requires a string, got None")
     if not isinstance(text, str):
         raise TypeError("romanize() requires a string, got {}".format(type(text).__name__))
+
+
+def romanize_spans(text, dic=None):
+    """Romanize, returning [(src_start, src_end, output)] instead of a string.
+
+    The spans tile the input: they are contiguous, non-overlapping, ordered,
+    and cover [0, len(text)). Joining their outputs reproduces romanize(text)
+    exactly, including the spaces inserted between adjacent words -- each such
+    space is carried as a prefix of the following span's output rather than
+    floating between spans.
+
+    The DOCX handler needs this. Word splits a word across several w:r runs,
+    so romanizing a paragraph as one string leaves no way to decide which run
+    each output word belongs to. A source range answers that: the output is
+    attributed to the run owning its first source character.
+    """
+    _check_text(text)
     if not text.strip():
-        return text
+        return [(0, len(text), text)] if text else []
 
     dic = dic or _dictionary.default()
 
@@ -537,26 +609,37 @@ def romanize(text, dic=None):
     # raw-text substitution has no notion of token boundaries and would
     # rewrite 私立 as "Watashi Ri" given an entry for 私.
     atoms = []
+    offset = 0
     for kind, run in _runs(text):
+        start, offset = offset, offset + len(run)
         if kind == _JP:
-            atoms.extend(_romanize_japanese(run, dic))
+            atoms.extend(_romanize_japanese(run, dic, start))
         elif kind == _LATIN:
-            atoms.append(("LATIN", _cased_latin(run, dic), None))
+            atoms.append(("LATIN", _cased_latin(run, dic), None, start, offset))
         elif kind == _SPACE:
-            atoms.append(("SPACE", run, None))
+            atoms.append(("SPACE", run, None, start, offset))
         else:
-            atoms.append(("PUNCT", run, None))
+            atoms.append(("PUNCT", run, None, start, offset))
 
     cased = _apply_case(atoms, dic)
 
     # A single space separates adjacent word-like atoms. Punctuation and
     # whitespace are emitted verbatim, so 東京、大阪 keeps its ideographic
     # comma with no space inserted around it.
-    pieces = []
+    spans = []
     previous_kind = None
-    for kind, value in cased:
-        if kind in _WORDLIKE and previous_kind in _WORDLIKE:
-            pieces.append(" ")
-        pieces.append(value)
+    for kind, value, start, end in cased:
+        # An atom that romanized to nothing takes no separator, or a word with
+        # no reading would leave a doubled space behind it.
+        wants_space = kind in _WORDLIKE and previous_kind in _WORDLIKE and value
+        spans.append((start, end, (" " if wants_space else "") + value))
         previous_kind = kind
-    return "".join(pieces)
+    return spans
+
+
+def romanize(text, dic=None):
+    """Romanize Japanese text into Modified Hepburn, preserving everything else."""
+    _check_text(text)
+    if not text.strip():
+        return text
+    return "".join(output for _, _, output in romanize_spans(text, dic))

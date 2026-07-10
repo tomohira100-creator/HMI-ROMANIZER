@@ -37,6 +37,13 @@ def build_parser():
     lint_cmd.add_argument(
         "--dict-dir", default=None, help="override the dictionaries directory"
     )
+
+    convert_cmd = subparsers.add_parser("convert", help="romanize a document")
+    convert_cmd.add_argument("input", help="path to the source document")
+    convert_cmd.add_argument("output", help="path to write the converted document")
+    convert_cmd.add_argument(
+        "--dict-dir", default=None, help="override the dictionaries directory"
+    )
     return parser
 
 
@@ -90,6 +97,48 @@ def _run_romanize(args, parser):
     return 0
 
 
+#: Exit codes. 2 means the document was refused, which is not a crash and
+#: should not be reported to the user as one.
+EXIT_OK = 0
+EXIT_ERROR = 1
+EXIT_REFUSED = 2
+
+_HANDLERS = {".docx": "romanizer.handlers.docx_handler"}
+
+
+def _run_convert(args):
+    import importlib
+    from pathlib import Path
+
+    source = Path(args.input)
+    suffix = source.suffix.lower()
+    if suffix not in _HANDLERS:
+        print(
+            "unsupported file type {!r}. Supported: {}".format(
+                suffix, ", ".join(sorted(_HANDLERS))
+            ),
+            file=sys.stderr,
+        )
+        return EXIT_ERROR
+    if not source.exists():
+        print("no such file: {}".format(source), file=sys.stderr)
+        return EXIT_ERROR
+
+    handler = importlib.import_module(_HANDLERS[suffix])
+    try:
+        dic = _dictionary.load(args.dict_dir) if args.dict_dir else _dictionary.default()
+        handler.convert(source, Path(args.output), dic)
+    except handler.RevisionMarkupError as exc:
+        print(str(exc), file=sys.stderr)
+        return EXIT_REFUSED
+    except (_dictionary.DictionaryError, handler.DocxError) as exc:
+        print("error: {}".format(exc), file=sys.stderr)
+        return EXIT_ERROR
+
+    print("wrote {}".format(args.output))
+    return EXIT_OK
+
+
 def main(argv=None):
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -98,8 +147,10 @@ def main(argv=None):
         return _run_romanize(args, parser)
     if args.command == "lint-dictionary":
         return _run_lint(args)
+    if args.command == "convert":
+        return _run_convert(args)
     parser.error("unknown command")
-    return 2
+    return EXIT_ERROR
 
 
 if __name__ == "__main__":

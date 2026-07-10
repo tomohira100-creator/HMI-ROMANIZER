@@ -1,8 +1,8 @@
 """Deterministic synthesis of the DOCX fixtures ROMANIZER can build for itself.
 
-Produces samples/05_lists.docx and samples/10_composite.docx. Every other
-sample (01-04, 06-09) must come from Microsoft Word, and the real board paper
-never enters this repository at all.
+Produces samples/05_lists.docx, samples/10_composite.docx and
+samples/11_fragmented.docx. Every other sample must come from Microsoft Word,
+and the real board paper never enters this repository at all.
 
     python python/tests/fixtures/build_fixtures.py
 
@@ -20,9 +20,10 @@ A green test suite over these fixtures is NOT a guarantee about real documents.
 The split-run redistribution path, which is the hardest part of the DOCX
 handler, is barely exercised here.
 
-Only two things test that path honestly:
-  - samples/02_formatting.docx, produced by Word, where Word chose the splits
-  - the real board paper, run locally and never committed
+11_fragmented.docx exists to cover exactly that gap, by hand-authoring the run
+boundaries Word declined to give us. Its fragmentation is ARTIFICIAL. It is a
+valid test of the handler's reassembly logic and worthless as evidence about
+how Word behaves. See the comment above build_11.
 
 Treat a pass here as a necessary condition, not a sufficient one.
 
@@ -405,10 +406,87 @@ def build_10():
     write_docx(SAMPLES / "10_composite.docx", parts)
 
 
+# --- 11_fragmented.docx ----------------------------------------------------
+#
+# ARTIFICIAL FRAGMENTATION. Word did not produce these run boundaries; they are
+# hand-authored here.
+#
+# That is deliberate and it is legitimate, because the thing under test is the
+# handler's reassembly logic, not Word's splitting behaviour. Inspection of six
+# real HMI documents found exactly one split word in 51,858 Japanese tokens,
+# and both of its runs carried identical formatting. Waiting for a real corpus
+# to exercise this path would mean shipping it untested.
+#
+# Do not cite a pass over this fixture as evidence about how Word behaves. It
+# is evidence only about how the handler behaves when a word is split.
+
+def build_11():
+    def run(text, rpr=""):
+        return "<w:r>{}<w:t xml:space=\"preserve\">{}</w:t></w:r>".format(rpr, text)
+
+    bold = "<w:rPr><w:b/></w:rPr>"
+    red = '<w:rPr><w:color w:val="FF0000"/></w:rPr>'
+
+    body = "".join(
+        [
+            # 1. Split across runs of IDENTICAL formatting. The real case:
+            #    Word broke 際しての as 際 + しての in 比良社長 春の叙勲.
+            "<w:p>" + run("際") + run("しての") + "</w:p>",
+            # 2. Split mid-word across runs of DIFFERING formatting. Never seen
+            #    in the real corpus. First-character-wins means the whole word
+            #    takes the FIRST run's bold, and the second run keeps its rPr
+            #    but ends up with empty text.
+            "<w:p>" + run("株", bold) + run("式会社") + "</w:p>",
+            # 3. Three-way split of a single word, mixed formatting.
+            "<w:p>" + run("東", bold) + run("京", red) + run("タワー") + "</w:p>",
+            # 4. Split immediately around a w:br. Romanization must NOT cross
+            #    the break: 東京 and 大阪 are separate words on separate lines.
+            "<w:p><w:r><w:t>東京</w:t><w:br/><w:t>大阪</w:t></w:r></w:p>",
+            # 5. Split across a bookmarkStart. The bookmark must survive, and
+            #    the word must still be romanized as one word.
+            '<w:p><w:r><w:t>株式</w:t></w:r>'
+            '<w:bookmarkStart w:id="9" w:name="mid_word"/>'
+            "<w:r><w:t>会社</w:t></w:r>"
+            '<w:bookmarkEnd w:id="9"/></w:p>',
+            # 6. Split inside a table cell. No real sample contains a table.
+            '<w:tbl><w:tblGrid><w:gridCol w:w="3000"/></w:tblGrid>'
+            "<w:tr><w:tc>"
+            "<w:p>" + run("株式") + run("会社") + "</w:p>"
+            "</w:tc></w:tr></w:tbl>",
+            # 7. A field code between two runs of one word. The instrText must
+            #    never be romanized, and it ends the segment.
+            "<w:p>" + run("東京")
+            + '<w:r><w:instrText xml:space="preserve"> PAGE </w:instrText></w:r>'
+            + run("大阪") + "</w:p>",
+            # 8. Every character of one word in its own run.
+            "<w:p>" + run("株") + run("式") + run("会") + run("社") + "</w:p>",
+            '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/></w:sectPr>',
+        ]
+    )
+    document = DECL + "<w:document {}><w:body>{}</w:body></w:document>".format(NS, body)
+
+    parts = {
+        "[Content_Types].xml": content_types(
+            [
+                '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>',
+                '<Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>',
+            ]
+        ),
+        "_rels/.rels": package_rels(),
+        "word/document.xml": document,
+        "word/_rels/document.xml.rels": document_rels(
+            [_rel("rId1", "styles", "styles.xml")]
+        ),
+        "word/styles.xml": minimal_styles(),
+    }
+    write_docx(SAMPLES / "11_fragmented.docx", parts)
+
+
 def main():
     build_05()
     build_10()
-    for name in ("05_lists.docx", "10_composite.docx"):
+    build_11()
+    for name in ("05_lists.docx", "10_composite.docx", "11_fragmented.docx"):
         print("wrote samples/{}".format(name))
 
 

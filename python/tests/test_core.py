@@ -209,6 +209,36 @@ def test_verbs_ending_in_u_never_take_a_macron(source, expected):
     assert r(source) == expected
 
 
+# --- Words UniDic does not know --------------------------------------------
+#
+# An unknown word arrives with a 6-field feature vector and no reading at all.
+# When the surface is kana, kana IS the reading, so no dictionary is needed.
+# Found by running the handler over real HMI documents: foreign names and
+# loanwords were passing through as raw katakana.
+
+@pytest.mark.parametrize(
+    "source,expected",
+    [
+        ("アミット", "Amitto"),   # a personal name, absent from UniDic
+        ("ビサ", "Bisa"),         # a loanword, absent from UniDic
+        ("ﾎﾃﾙ", "Hoteru"),       # halfwidth katakana, folded by NFKC
+    ],
+)
+def test_unknown_kana_words_are_romanized_from_their_surface(source, expected):
+    assert r(source) == expected
+
+
+def test_unknown_kanji_falls_back_to_the_surface():
+    """No reading exists and none can be invented. Emit rather than drop."""
+    assert r("𰻞") == "𰻞"
+
+
+def test_prolonged_mark_never_begins_a_word():
+    """A lone ー token would romanize to nothing and leave a doubled space."""
+    assert r("くまーる") == "Kumā Ru"
+    assert "  " not in r("くまーる")
+
+
 # --- 10. Particles ---------------------------------------------------------
 
 @pytest.mark.parametrize(
@@ -318,6 +348,18 @@ def test_japanese_punctuation_is_preserved_verbatim():
 def test_punctuation_between_words_is_untouched():
     assert r("東京、大阪") == "Tōkyō、Ōsaka"
     assert r("「東京」") == "「Tōkyō」"
+
+
+def test_katakana_middle_dot_is_punctuation_not_a_word():
+    """U+30FB sits inside the katakana block but takes no surrounding spaces."""
+    assert r("東京・大阪") == "Tōkyō・Ōsaka"
+    assert r("面接・試験") == "Mensetsu・Shiken"
+    assert r("ホテル・旅館") == "Hoteru・Ryokan"
+
+
+def test_prolonged_sound_mark_is_still_a_letter():
+    """U+30FC neighbours the middle dot and must remain Japanese."""
+    assert r("コーヒー") == "Kōhī"
 
 
 def test_ascii_punctuation_untouched():

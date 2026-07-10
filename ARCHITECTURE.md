@@ -142,6 +142,21 @@ contain only characters that reach the tokenizer: kana, kanji, and digits. A
 key containing Latin, punctuation, or whitespace is structurally dead and is
 reported as such.
 
+### `python/romanizer/docx_parts.py`
+Zip-level read and write for OOXML packages. Reads a package into its original
+`ZipInfo` entries and writes it back, substituting only the parts a caller
+replaced. Untouched parts are copied byte for byte with their original
+compression and timestamps, which is what makes the "untouched parts are
+byte-identical" assertion in the test suite meaningful. Re-serializing an
+unchanged XML part through lxml would rewrite attribute order and namespace
+declarations even when nothing changed.
+
+Deliberately not built on `python-docx`, which was evaluated and rejected: its
+object model misses text (runs inside `w:ins` and `w:fldSimple` report as
+absent), destroys structure (assigning to `run.text` drops `w:br` and `w:tab`
+from the run), and does not parse `footnotes.xml` at all. Its packaging layer
+round-trips losslessly; its convenience API does not.
+
 ### `python/romanizer/handlers/*.py`
 Format-specific file handlers. Each one:
 - Takes an input file path and output file path
@@ -253,7 +268,7 @@ real content: in this corpus it never discards any formatting, because there is
 never any to discard. The single split is `際して` broken as `際` + `しての` in
 the title of `比良社長 春の叙勲 受章のご報告`. Mid-word formatting changes are
 an English typographic habit, not a Japanese one. Untested: splits inside table
-cells, and splits adjacent to `w:br` -- no sample contains a table.
+cells, and splits adjacent to `w:br` — no sample contains a table.
 
 **`w:pict` is not evidence of an image.** Every file carries `w:pict` elements
 whose only child is `v:rect`, VML rectangles used as horizontal rules. There is

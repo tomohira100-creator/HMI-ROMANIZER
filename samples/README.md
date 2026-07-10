@@ -23,6 +23,7 @@ by discipline, so a real document cannot be committed by accident.
 | `08_images.docx` | Microsoft Word | no |
 | `09_textbox.docx` | Microsoft Word | no |
 | `10_composite.docx` | **synthesized** | **yes** |
+| `11_fragmented.docx` | **synthesized** | **yes** |
 | the real board paper | HMI | never |
 
 Regenerate the synthesized fixtures with:
@@ -47,10 +48,17 @@ artificial conditions, with clean run boundaries the handler never has to
 reassemble. The split-run redistribution path, which is the hardest and most
 failure-prone part of the DOCX handler, is barely exercised by it.
 
-Only two artefacts test that path honestly:
+Only two artefacts test that path against *Word's* behaviour:
 
 - `02_formatting.docx`, produced by Word, where **Word** chose the splits
 - the real board paper, run locally by Tomo and never committed
+
+`11_fragmented.docx` covers the gap differently, by hand-authoring the run
+boundaries Word declined to give us: identical-format splits, differing-format
+splits, three-way splits, splits around a `w:br`, across a `bookmarkStart`,
+inside a table cell, and around a field code. **Its fragmentation is
+artificial.** It is a valid test of the handler's reassembly logic and
+worthless as evidence about how Word behaves.
 
 Treat a pass over the synthesized fixtures as a necessary condition, never a
 sufficient one.

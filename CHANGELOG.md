@@ -20,8 +20,51 @@ a versioned library. Each entry records the commit that introduced the change.
   part of speech must be `接続助詞` (the `で` in `東京で` is a `格助詞`, the `で`
   in `静かで` is a `助動詞`). `た` and `だ` are `助動詞` and were already joined,
   so past forms never carried the defect.
+- The katakana middle dot `・` (U+30FB) was classified as a letter because it
+  sits inside the katakana Unicode block. It became a word-like atom and took
+  spaces: `面接・試験` gave `Mensetsu ・ Shiken`. Now punctuation, preserved
+  verbatim. Its neighbour U+30FC, the prolonged sound mark, is a letter and is
+  unaffected. The Phase 1 punctuation test passed only by luck, having no
+  neighbouring word to space against.
+- Words UniDic does not know arrive with a six-field feature vector and no
+  reading at all, so they passed through as raw Japanese. When the surface is
+  kana, kana is a reading: `アミット` gives `Amitto`, `ビサ` gives `Bisa`, and
+  NFKC folds halfwidth `ﾎﾃﾙ` to `Hoteru`. Unknown *kanji* still emit the
+  surface, because no reading exists and none can be invented.
+- A lone prolonged sound mark romanized to nothing and left a doubled space
+  (`くまーる` gave `Kuma  Ru`). It can never begin a word, so it now attaches
+  leftward: `Kumā Ru`.
+
+The last three were found by running the DOCX handler over real HMI documents.
+None was reachable from the synthesized fixtures.
 
 ### Added
+
+- **Phase 2: the DOCX handler.** `python/romanizer/handlers/docx_handler.py`
+  romanizes every `w:t` leaf in `document.xml`, headers, footers, footnotes,
+  endnotes and comments. That single traversal reaches body text, table cells,
+  text boxes, content controls, hyperlink display text and field results with
+  no per-construct code. `w:instrText` is never romanized and acts as a segment
+  boundary, so ` PAGE ` survives.
+- `python/romanizer/docx_parts.py`: zip-level read and write preserving
+  untouched parts byte for byte, including images and embedded objects.
+- `core.romanize_spans()`: returns `[(src_start, src_end, output)]` instead of a
+  string. The spans tile the input and rejoin to exactly `romanize(text)`.
+  Without it there is no way to decide which `w:r` run an output word belongs to
+  when Word has split a word across runs.
+- `python -m romanizer convert in.docx out.docx`. Exit code 2 means the document
+  was refused, which is not a crash.
+- Decision D3: documents carrying revision markup are **refused**, not
+  romanized. Revision history records who changed what and when, and in a
+  franchise audit or vendor dispute that record is evidence. All thirteen
+  revision constructs are checked across every part, not only `document.xml`,
+  and refusal happens before any output is written.
+- `samples/11_fragmented.docx`, hand-authoring the run boundaries Word declined
+  to give us. Its fragmentation is artificial and it is evidence about the
+  handler, never about Word.
+- `python/tests/test_docx_handler.py` and `test_docx_spans.py`: 94 tests. The
+  integration tests assert on three levels -- untouched parts byte-identical,
+  edited parts structurally isomorphic ignoring text, and the text correct.
 
 - `dictionaries/custom_terms.json`: `旭日中綬章` as `Kyokujitsu Chūjushō`. MeCab
   splits it into `旭日` + `中` + `綬章` and reads `旭日` as `アサヒ`, the
