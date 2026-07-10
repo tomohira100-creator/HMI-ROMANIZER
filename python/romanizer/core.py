@@ -156,6 +156,29 @@ def _to_int(surface):
     return int(unicodedata.normalize("NFKC", surface))
 
 
+def _apply_overrides(tokens, dic):
+    """Replace token spans matched by custom_terms with literal romaji.
+
+    Runs before the counter table and before word grouping, so an override
+    on 十四日 wins over the day-counter rule. Longest span wins at each
+    index; consumed tokens are never reconsidered, so partial overlap
+    between two overrides cannot arise.
+    """
+    out = []
+    index = 0
+    while index < len(tokens):
+        hit = dic.match_tokens(tokens, index)
+        if hit is None:
+            out.append(tokens[index])
+            index += 1
+            continue
+        span, romaji = hit
+        surface = "".join(token.surface for token in tokens[index:index + span])
+        out.append(_Token(surface, "名詞", "", "", "", "", literal=romaji))
+        index += span
+    return out
+
+
 def _apply_counters(tokens):
     out = []
     index = 0
@@ -163,7 +186,13 @@ def _apply_counters(tokens):
         token = tokens[index]
         nxt = tokens[index + 1] if index + 1 < len(tokens) else None
 
-        if token.is_digit_numeral and nxt is not None and nxt.surface in _COUNTER_READINGS:
+        if (
+            token.literal is None
+            and nxt is not None
+            and nxt.literal is None
+            and token.is_digit_numeral
+            and nxt.surface in _COUNTER_READINGS
+        ):
             value = _to_int(token.surface)
             if nxt.surface == "日" and value in _IRREGULAR_DAYS:
                 # The numeral is absorbed: 20日 -> Hatsuka.
@@ -420,8 +449,11 @@ def _cased_latin(text, dic):
     return text
 
 
-def _romanize_japanese(run, dic, first_word_index):
-    tokens = _apply_counters(_tokenize(run))
+def _romanize_japanese(run, dic):
+    # Precedence: override > counter table > MeCab's own reading.
+    tokens = _tokenize(run)
+    tokens = _apply_overrides(tokens, dic)
+    tokens = _apply_counters(tokens)
     words = _group_words(tokens)
 
     atoms = []
@@ -477,36 +509,20 @@ def romanize(text, dic=None):
 
     dic = dic or _dictionary.default()
 
+    # Overrides are applied inside _romanize_japanese, against the token
+    # stream. They are deliberately not applied here against raw text: a
+    # raw-text substitution has no notion of token boundaries and would
+    # rewrite 私立 as "Watashi Ri" given an entry for 私.
     atoms = []
-    index = 0
-    buffer = []
-
-    def flush():
-        if not buffer:
-            return
-        chunk = "".join(buffer)
-        buffer.clear()
-        for kind, run in _runs(chunk):
-            if kind == _JP:
-                atoms.extend(_romanize_japanese(run, dic, len(atoms)))
-            elif kind == _LATIN:
-                atoms.append(("LATIN", _cased_latin(run, dic), None))
-            elif kind == _SPACE:
-                atoms.append(("SPACE", run, None))
-            else:
-                atoms.append(("PUNCT", run, None))
-
-    while index < len(text):
-        hit = dic.match_at(text, index)
-        if hit:
-            surface, romaji = hit
-            flush()
-            atoms.append(("ROMAJI", romaji, _Word(_Token(surface, "名詞", "", "", "", "", romaji))))
-            index += len(surface)
-            continue
-        buffer.append(text[index])
-        index += 1
-    flush()
+    for kind, run in _runs(text):
+        if kind == _JP:
+            atoms.extend(_romanize_japanese(run, dic))
+        elif kind == _LATIN:
+            atoms.append(("LATIN", _cased_latin(run, dic), None))
+        elif kind == _SPACE:
+            atoms.append(("SPACE", run, None))
+        else:
+            atoms.append(("PUNCT", run, None))
 
     cased = _apply_case(atoms, dic)
 

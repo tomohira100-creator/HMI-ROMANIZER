@@ -9,6 +9,62 @@ a versioned library. Each entry records the commit that introduced the change.
 
 ## [Unreleased]
 
+## [Phase 1.5] — 2026-07-10
+
+Context-sensitive overrides. Custom terms now match the tokenizer's output
+rather than raw text.
+
+### Added
+
+- Token-boundary-aligned span matching in `dictionary.py`. A key matches a run
+  of consecutive tokens whose surfaces concatenate exactly to the key. Longest
+  span wins, leftmost; consumed tokens are never reconsidered, so partial
+  overlap between two overrides cannot arise.
+- Optional `pos` constraint on an override, matched against `pos1` of the
+  span's first token. Unset on every shipped entry.
+- `Dictionary.empty()`, exposing MeCab's unmodified readings. Phase 10 corpus
+  tooling will diff against this to propose candidate dictionary entries.
+- `load(strict=...)`: raises on dead entries in development, collects them into
+  `Dictionary.warnings` at runtime.
+- `python -m romanizer lint-dictionary`, reporting each entry as `ok`, `dead`,
+  `redundant`, or `shadowed`. Exits non-zero if any entry is dead.
+- `python/tests/test_overrides.py`: 51 tests, including negative tests locking
+  `私立` `私鉄` `私服` `私道` and a surname-versus-compound case. Suite total is
+  165 tests, 95% statement coverage.
+
+### Changed
+
+- `custom_terms.json` is no longer substituted into raw text before
+  tokenization. The old mechanism had no notion of token boundaries and would
+  rewrite `私立` as `Watashi Ri` given an entry for `私`.
+- `ARCHITECTURE.md`: rewrote the `dictionary.py` responsibilities, added an
+  override-precedence section, documented `lint-dictionary`, and noted that the
+  sidecar loads dictionaries non-strictly.
+
+### Unchanged
+
+- All 114 Phase 1 tests pass without modification. The four Phase 1 test files
+  are byte-identical, which is the evidence that the refactor preserves
+  behaviour.
+- `custom_terms.json` required no migration. All five keys already aligned to
+  token boundaries.
+- `私` is deliberately **not** seeded. `Watakushi` ships. The mechanism exists
+  for proper nouns; `私` is the test fixture that proves it.
+
+### Design notes
+
+- Overrides are keyed on the surface span, never on lemma. UniDic's lemma is
+  neither the surface nor hand-writable: `私` has lemma `私-代名詞` and `比良`
+  has lemma `ヒラ`.
+- Span matching, rather than single-token matching, is required because MeCab
+  does not know every proper noun. `白良浜` is shattered into `白` + `良` +
+  `浜`, so no single-token override could ever repair it. `比良`, by contrast,
+  is a known place name that already reads `Hira` and needs no entry at all.
+- Known limit: `私生活` tokenizes as `私` + `生活`, so an override on `私` does
+  fire there, yielding `Watashi Seikatsu`. MeCab alone is already wrong here
+  (`Watakushi Seikatsu`; the correct reading is `Shiseikatsu`). A longer
+  override wins by longest match. Documented and tested rather than hidden.
+
 ## [Phase 1] — 2026-07-10
 
 Romanization core library. Modified Hepburn, offline, no file I/O.

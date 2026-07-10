@@ -87,7 +87,52 @@ Takes UniDic's `pron` reading for vowel length and its `kana` reading for vowel
 identity; neither alone is sufficient.
 
 ### `python/romanizer/dictionary.py`
-Loads `abbreviations.json` and `custom_terms.json` at startup. Provides lookup interface to `core.py`.
+Loads `abbreviations.json` and `custom_terms.json` at startup. Provides lookup
+interface to `core.py`.
+
+Custom terms are matched against the tokenizer's output, not against raw text.
+A key matches a run of one or more consecutive tokens whose surfaces
+concatenate exactly to the key, beginning and ending on token boundaries.
+Token-boundary alignment is the safety property: a key of `私` cannot reach
+inside `私立`, because UniDic emits that as a single token. Spans rather than
+single tokens are required because MeCab does not know every proper noun, and
+shatters `白良浜` into `白` + `良` + `浜`.
+
+Entries may carry an optional `pos` constraint, matched against `pos1` of the
+span's first token. Lemma is deliberately not used as a key: UniDic's lemma is
+neither the surface nor hand-writable (`私` has lemma `私-代名詞`, `比良` has
+lemma `ヒラ`), and it varies between UniDic releases.
+
+`load(strict=True)`, the default for the CLI and tests, raises on an entry that
+can never match, so dead entries are caught at edit time. The runtime sidecar
+calls `load(strict=False)`, which collects the same problems into
+`Dictionary.warnings` and loads the remaining entries, so one malformed entry
+in a user's dictionary degrades a single term rather than aborting a conversion
+mid-document on an office machine.
+
+`Dictionary.empty()` romanizes with MeCab's own readings and no overrides. It
+exists so that Phase 10 corpus tooling can diff default output against expected
+output and propose candidate dictionary entries.
+
+### Override precedence
+
+Evaluated on the token stream, highest first:
+
+1. `custom_terms.json` override. Longest span, leftmost. Consumed tokens are
+   literal and immune to everything below.
+2. The counter-reading table for `日`, `月`, `年`. Sees only tokens no override
+   claimed, so `十四日` comes from the dictionary, never from the table.
+3. MeCab's own reading, from the `pron` and `kana` fields.
+4. Title Case and `abbreviations.json`.
+
+`abbreviations.json` does not compete with `custom_terms.json`. It governs the
+casing of Latin runs, which never reach MeCab. An override value is emitted
+verbatim and consults neither Title Case nor the abbreviation list.
+
+Because overrides are applied after script segmentation, an override key may
+contain only characters that reach the tokenizer: kana, kanji, and digits. A
+key containing Latin, punctuation, or whitespace is structurally dead and is
+reported as such.
 
 ### `python/romanizer/handlers/*.py`
 Format-specific file handlers. Each one:
@@ -104,6 +149,13 @@ JSON-over-stdin/stdout protocol for Tauri ↔ Python communication. Receives job
 ### `python/romanizer/cli.py`
 Command-line interface for development testing. Lets us run `python -m romanizer convert input.docx output.docx` without the UI.
 
+Commands:
+- `romanize` — romanize a string, from an argument or `--stdin`
+- `lint-dictionary` — audit `custom_terms.json`, reporting each entry as `ok`,
+  `dead` (can never match), `redundant` (MeCab already produces this), or
+  `shadowed` (a different entry wins on this key). Exits non-zero if any entry
+  is dead.
+
 ### `src-tauri/src/main.rs`
 Rust shell. Spawns Python sidecar. Manages window lifecycle. Handles file dialog, drag-drop file paths.
 
@@ -115,7 +167,9 @@ React UI. Drag-drop zone, file cards, progress bars, settings panel, output fold
 1. User drops files → React captures paths via Tauri drag-drop event
 2. User clicks "Convert All" → React sends job message to Rust
 3. Rust forwards JSON message to Python sidecar via stdin
-4. Python receives job, dispatches to appropriate handler
+4. Python receives job, dispatches to appropriate handler; the sidecar loads
+   dictionaries with `strict=False` and returns any dead-entry warnings in the
+   job result rather than failing the conversion
 5. Handler processes file, emits progress messages on stdout
 6. Rust reads stdout, forwards to React
 7. React updates UI in real-time
