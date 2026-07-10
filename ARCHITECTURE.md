@@ -8,6 +8,27 @@
 - **Build:** Vite for frontend, Cargo for Rust, PyInstaller for Python sidecar
 - **Installer:** Tauri bundler → Windows `.msi` via GitHub Actions
 
+## Design Constraint: No Network Calls at Runtime
+
+ROMANIZER makes no network calls while running. No telemetry, no analytics, no
+crash reporting, no reading-lookup API, no update check — nothing leaves the
+machine. This is not a performance choice and it is not negotiable.
+
+The tool processes Marriott and IHG franchise material, vendor agreements, and
+board papers. Those documents must never leave the machine on which they are
+converted. A single outbound request carrying document text — even to look up a
+kanji reading, even to a service that promises not to retain it — is a
+confidentiality breach in a franchise or vendor context. A future maintainer
+who adds a lookup API to "improve accuracy" would be trading the one property
+that makes this tool usable on these documents for a marginal gain. Do not.
+
+The offline substitute for an internet reading-lookup is the `samples/expected/`
+validation corpus (see below). When MeCab gets a reading wrong, the answer is
+not to ask the open web; it is to diff against HMI's own hand-romanized
+documents and add the correction to `custom_terms.json`. That grounds accuracy
+in HMI's real vocabulary rather than in whatever the web returns, and it does it
+without a single byte leaving the machine.
+
 ## Python Dependencies
 
 - `mecab-python3` + `unidic` — kanji to reading via morphological analysis, and the sole source of romanization readings

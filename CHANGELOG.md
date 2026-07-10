@@ -9,6 +9,15 @@ a versioned library. Each entry records the commit that introduced the change.
 
 ## [Unreleased]
 
+### Documentation
+
+- `ARCHITECTURE.md`: added a "No Network Calls at Runtime" design-constraint
+  section. The tool processes Marriott and IHG franchise material, vendor
+  agreements, and board papers, which must never leave the machine, so no
+  telemetry, analytics, or reading-lookup API is permitted. Recorded so a
+  future maintainer does not add a lookup API believing it a harmless accuracy
+  improvement. The offline substitute is the `samples/expected/` corpus.
+
 ### Fixed
 
 - Conjunctive `て` and `で` now join the stem they inflect. Leaving them
