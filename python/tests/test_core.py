@@ -241,6 +241,69 @@ def test_ha_inside_a_word_is_not_a_particle():
     assert r("話") == "Hanashi"
 
 
+# --- Conjunctive て / で ----------------------------------------------------
+#
+# These attach to the stem they inflect. Leaving them separate destroys
+# information: MeCab reads 行っ as イッ, and a word-final sokuon has no
+# consonant to double, so 行って romanized as "I Te" -- from which 言って,
+# 入って and 射って are indistinguishable.
+
+@pytest.mark.parametrize(
+    "source,expected",
+    [
+        ("行って", "Itte"),        # sokuon restored by the following mora
+        ("書いて", "Kaite"),
+        ("際して", "Saishite"),     # the real split word in 比良社長 春の叙勲
+        ("読んで", "Yonde"),
+        ("飛んで", "Tonde"),
+        ("高くて", "Takakute"),     # 形容詞 stem, not 動詞
+        ("なっております", "Natte Orimasu"),
+    ],
+)
+def test_conjunctive_particle_joins_the_stem(source, expected):
+    assert r(source) == expected
+
+
+@pytest.mark.parametrize(
+    "source,expected",
+    [("行った", "Itta"), ("読んだ", "Yonda"), ("書いた", "Kaita"), ("走った", "Hashitta")],
+)
+def test_past_forms_were_already_correct(source, expected):
+    """た and だ are 助動詞 and already joined. Guard against a regression."""
+    assert r(source) == expected
+
+
+@pytest.mark.parametrize(
+    "source,expected",
+    [
+        ("行っている", "Itte Iru"),
+        ("読んでいる", "Yonde Iru"),
+        ("書いてしまう", "Kaite Shimau"),
+        ("見ておく", "Mite Oku"),
+        ("行ってしまった", "Itte Shimatta"),
+    ],
+)
+def test_auxiliary_verbs_remain_separate_words(source, expected):
+    assert r(source) == expected
+
+
+@pytest.mark.parametrize(
+    "source,expected",
+    [
+        ("東京で", "Tōkyō de"),      # で is 格助詞, not 接続助詞
+        ("電車で", "Densha de"),     # で is 格助詞
+        ("静かで", "Shizuka de"),    # で is 助動詞
+        ("行くが", "Iku ga"),        # が IS 接続助詞 but is not て/で
+        ("読むから", "Yomu kara"),   # から IS 接続助詞 but is not て/で
+        ("東京って", "Tōkyō Tte"),   # quotative って, 副助詞
+        ("彼って", "Kare Tte"),      # quotative って
+    ],
+)
+def test_particles_that_must_not_be_swallowed(source, expected):
+    """Both halves of the rule are load-bearing: the surface AND the POS."""
+    assert r(source) == expected
+
+
 def test_konnichiwa_is_a_single_token_with_particle_pronunciation():
     """POS alone would say 感動詞 and emit Konnichiha. pron says コンニチワ."""
     assert r("こんにちは") == "Konnichiwa"

@@ -226,9 +226,26 @@ def _apply_counters(tokens):
 #                        is a numeral                 5 + 月    -> 5 Gatsu
 #   prefix (接頭辞)      joins the following word     新 + 一   -> Shin'ichi
 #                        unless it is a digit         第 + 3    -> Dai 3
-#   particle (助詞)      always stands alone          私 は     -> Watashi wa
+#   conjunctive て/で    joins a verb or adjective     行っ + て -> Itte
+#   (助詞/接続助詞)                                   読ん + で -> Yonde
+#   particle (助詞)      otherwise stands alone       私 は     -> Watashi wa
 
 _INFLECTABLE = ("動詞", "形容詞", "助動詞")
+
+#: The conjunctive particles て and で attach to the stem they inflect. Leaving
+#: them separate does not merely look wrong, it destroys information: MeCab
+#: reads 行っ as イッ, and a word-final sokuon has no consonant to double, so
+#: 行って romanized as "I Te". 言って, 入って and 射って all collapse to the same
+#: string. Joining supplies the following mora and gemination works: "Itte".
+#:
+#: Both conditions below are load-bearing.
+#:
+#: The surface must be て or で, because が and から are also 接続助詞 and
+#: joining them would give "Ikuga" for 行くが.
+#:
+#: The part of speech must be 接続助詞, because the で in 東京で is a 格助詞
+#: and the で in 静かで is a 助動詞. Neither attaches to anything.
+_CONJUNCTIVE_PARTICLES = frozenset({"て", "で"})
 
 
 class _Word:
@@ -252,6 +269,12 @@ def _joins_left(token, previous):
         return False
     if token.pos1 == "接尾辞":
         return True
+    if (
+        token.pos1 == "助詞"
+        and token.pos2 == "接続助詞"
+        and token.surface in _CONJUNCTIVE_PARTICLES
+    ):
+        return previous.pos1 in _INFLECTABLE
     if token.pos1 == "助動詞":
         return previous.pos1 in _INFLECTABLE
     if token.pos1 == "名詞" and token.pos3 == "助数詞可能":
