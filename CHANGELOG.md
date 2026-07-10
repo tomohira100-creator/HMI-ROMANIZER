@@ -9,6 +9,14 @@ a versioned library. Each entry records the commit that introduced the change.
 
 ## [Unreleased]
 
+### Documentation
+
+- `ARCHITECTURE.md`: recorded the compound-splitting limitation as a stated
+  hypothesis for Phase 10 corpus work. Verified against HMI place names:
+  `浜松`, `神戸`, `御前崎`, `相良`, `熱海`, `那覇` and `読谷` are single known
+  lexemes and read correctly, but `舘山寺` splits into `舘山` + `寺` and yields
+  `Tateyamaji` rather than `Kanzanji`.
+
 ## [Phase 1.5] — 2026-07-10
 
 Context-sensitive overrides. Custom terms now match the tokenizer's output

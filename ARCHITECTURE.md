@@ -114,6 +114,14 @@ mid-document on an office machine.
 exists so that Phase 10 corpus tooling can diff default output against expected
 output and propose candidate dictionary entries.
 
+Known limitation, to be tested against a real corpus in Phase 10: MeCab
+sometimes splits a compound that should not be split, and reads the parts
+wrongly. `私生活` becomes `私` + `生活`, which no override on either part can
+repair; only an override on the whole span can. This bites on property names:
+`舘山寺` splits into `舘山` + `寺` and yields `Tateyamaji` rather than
+`Kanzanji`. `浜松`, `神戸`, `御前崎`, `相良`, `熱海`, `那覇` and `読谷` are
+single known lexemes and read correctly; vendor entity names are unverified.
+
 ### Override precedence
 
 Evaluated on the token stream, highest first:
