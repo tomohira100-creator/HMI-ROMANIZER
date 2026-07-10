@@ -9,8 +9,37 @@ a versioned library. Each entry records the commit that introduced the change.
 
 ## [Unreleased]
 
+### Fixed
+
+- Conjunctive `て` and `で` now join the stem they inflect. Leaving them
+  separate destroyed information: MeCab reads `行っ` as `イッ`, and a word-final
+  sokuon has no consonant to double, so `行って` romanized as `I Te`, a string
+  from which `言って`, `入って` and `射って` are indistinguishable. Now `Itte`.
+  Both halves of the rule are load-bearing and each has a negative test: the
+  surface must be `て` or `で` (`が` and `から` are also `接続助詞`), and the
+  part of speech must be `接続助詞` (the `で` in `東京で` is a `格助詞`, the `で`
+  in `静かで` is a `助動詞`). `た` and `だ` are `助動詞` and were already joined,
+  so past forms never carried the defect.
+
 ### Added
 
+- `dictionaries/custom_terms.json`: `旭日中綬章` as `Kyokujitsu Chūjushō`. MeCab
+  splits it into `旭日` + `中` + `綬章` and reads `旭日` as `アサヒ`, the
+  everyday reading, giving `Asahijū Jushō`. No override on the parts can repair
+  it, which is precisely what the token-span mechanism exists for.
+- `ARCHITECTURE.md`: a known-limitations section. Honorific suffixes are joined
+  to the name (`比良さん` gives `Hirasan`), because UniDic tags `さん` and `です`
+  alike as `接尾辞` and the distinction is honorific versus grammatical rather
+  than part of speech. Fullwidth Latin and digits pass through unconverted
+  (`ＨＭＩ`, `８`); whether to apply NFKC is a question the PRD does not settle
+  and it remains open. Auxiliary verbs are separate capitalized words
+  (`Itte Iru`), a Title Case question rather than a correctness one.
+- `ARCHITECTURE.md`: DOCX findings from the real corpus, closing decision D2.
+  Across six real HMI documents and 51,858 Japanese tokens, exactly one word is
+  split across runs and zero are split across runs of differing formatting, so
+  "first-character-wins" discards nothing in practice. Also records that
+  `w:pict` is not evidence of an image, and that five of six files were not
+  produced by Microsoft Word.
 - `python/tests/fixtures/build_fixtures.py`: deterministic synthesis of
   `samples/05_lists.docx` and `samples/10_composite.docx` using `zipfile` and
   `lxml` only, with no `python-docx` dependency. Rebuilds are byte-identical.

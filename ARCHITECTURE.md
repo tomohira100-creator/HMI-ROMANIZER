@@ -219,6 +219,57 @@ The installer includes:
 
 Total installer size: ~3 GB.
 
+## Known Limitations and Open Questions
+
+**Honorific suffixes are joined to the name.** `比良さん` romanizes as `Hirasan`
+rather than `Hira-san` or `Hira San`. The word-grouping rule joins every
+`接尾辞` to the preceding word, which is right for `です` and for `日本人`
+(`Nipponjin`) and wrong for `さん`, `様`, `氏` and `殿`. The distinction UniDic
+does not draw is honorific versus grammatical: both are tagged `接尾辞`, so part
+of speech alone cannot separate them. A fix needs an explicit list of honorifics
+and a decision on whether to hyphenate or space them. Unresolved.
+
+**Fullwidth Latin and digits pass through unconverted.** `ＨＭＩホテル` becomes
+`ＨＭＩ Hoteru`, and `令和８年` becomes `Reiwa ８ Nen`. Latin runs are emitted
+byte for byte by design, and fullwidth digits are digits. Whether to apply NFKC
+normalization so `ＨＭＩ` becomes `HMI` and `８` becomes `8` is a question the
+PRD does not settle, and it is not only cosmetic: NFKC would also fold other
+characters in ways that need review. Open, undecided, deliberately untouched.
+
+**Auxiliary verbs are separate capitalized words.** `行っている` becomes
+`Itte Iru`. Standard Hepburn practice writes the auxiliary lowercase. This is a
+Title Case question rather than a correctness one.
+
+## DOCX Findings from the Real Corpus
+
+Measured across six real HMI documents, 51,858 Japanese tokens, before the
+handler was written.
+
+**Split-run formatting (decision D2, closed).** Exactly one Japanese word was
+split across `w:r` runs, and both runs carried byte-identical formatting. Zero
+words were split across runs of differing formatting. The rule "the run
+containing the word's first character wins" was therefore validated against
+real content: in this corpus it never discards any formatting, because there is
+never any to discard. The single split is `際して` broken as `際` + `しての` in
+the title of `比良社長 春の叙勲 受章のご報告`. Mid-word formatting changes are
+an English typographic habit, not a Japanese one. Untested: splits inside table
+cells, and splits adjacent to `w:br` -- no sample contains a table.
+
+**`w:pict` is not evidence of an image.** Every file carries `w:pict` elements
+whose only child is `v:rect`, VML rectangles used as horizontal rules. There is
+no media part behind them. Do not infer image content from `pict`.
+
+**Producer.** Five of the six files have no `docProps/app.xml` and were not
+produced by Microsoft Word, though they carry `w:rsid` attributes. Only
+`比良社長 春の叙勲` names `Microsoft Office Word`. That is almost certainly why
+fragmentation is nearly absent, and it means the corpus is representative of
+what HMI actually writes rather than of what Word does. This is the population
+the tool serves.
+
+**Constructs absent from the entire corpus**, and therefore untested by it:
+tables, `gridSpan`, `vMerge`, content controls, fields, hyperlinks, comments,
+headers, footers, embedded OLE objects.
+
 ## Validation Corpus
 
 `samples/expected/` holds documents a human romanized by hand, paired with their
