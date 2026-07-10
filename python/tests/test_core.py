@@ -339,6 +339,94 @@ def test_konnichiwa_is_a_single_token_with_particle_pronunciation():
     assert r("こんにちは") == "Konnichiwa"
 
 
+# --- Honorific and title suffixes ------------------------------------------
+#
+# A suffix in the honorific list detaches from a proper-noun NAME, so a name
+# and its honorific are separate capitalized words. The gate is the preceding
+# word's proper-noun status: without it, お客様 -- which HMI documents use
+# constantly -- would split to "Okyaku Sama".
+
+@pytest.mark.parametrize(
+    "source,expected",
+    [
+        ("比良さん", "Hira San"),
+        ("比良様", "Hira Sama"),
+        ("比良氏", "Hira Shi"),
+        ("比良殿", "Hira Dono"),
+        ("比良君", "Hira Kun"),
+        ("比良ちゃん", "Hira Chan"),
+        ("田中様", "Tanaka Sama"),
+        ("スミスさん", "Sumisu San"),
+    ],
+)
+def test_honorific_suffix_detaches_from_a_name(source, expected):
+    assert r(source) == expected
+
+
+@pytest.mark.parametrize(
+    "source,expected",
+    [
+        # Single-token titles were always separate; guard them.
+        ("比良社長", "Hira Shachō"),
+        ("比良専務", "Hira Senmu"),
+        ("比良常務", "Hira Jōmu"),
+        ("比良係長", "Hira Kakarichō"),
+        # 部長/課長 tokenize as 部/課 (助数詞可能) + 長, and the 部/課 would
+        # otherwise glue onto the surname. The proper-noun gate detaches them.
+        ("比良部長", "Hira Buchō"),
+        ("比良課長", "Hira Kachō"),
+        ("比良会長", "Hira Kaichō"),
+    ],
+)
+def test_title_detaches_from_a_name(source, expected):
+    assert r(source) == expected
+
+
+@pytest.mark.parametrize(
+    "source,expected",
+    [
+        # 様/さん on a COMMON noun stays joined -- the base is not a proper noun.
+        ("お客様", "Okyakusama"),
+        ("お客さん", "Okyakusan"),
+        ("神様", "Kamisama"),
+        ("殿様", "Tonosama"),
+        ("皆様", "Minasama"),
+        ("お子様", "Okosama"),
+        # 人 is a 接尾辞 but not honorific; it always joins.
+        ("日本人", "Nipponjin"),
+        # 様/君/氏 here are inside a single 名詞 token, never a separate 接尾辞.
+        ("様子", "Yōsu"),
+        ("模様", "Moyō"),
+        ("君主", "Kunshu"),
+        ("君が代", "Kimigayo"),
+        ("氏名", "Shimei"),
+    ],
+)
+def test_common_noun_bases_keep_the_suffix_joined(source, expected):
+    """The proper-noun gate. Every one of these must stay a single word."""
+    assert r(source) == expected
+
+
+@pytest.mark.parametrize(
+    "source,expected",
+    [
+        # 期/機 are 助数詞可能 on common-noun bases: they must still join.
+        ("四半期", "Shihanki"),
+        ("飛行機", "Hikōki"),
+        # Place-name compounds use 名詞/一般, unaffected by the proper-noun gate.
+        ("東京駅", "Tōkyō Eki"),
+        ("比良山", "Hira Yama"),
+        ("日本橋", "Nihonbashi"),
+    ],
+)
+def test_counter_noun_join_is_unchanged_for_common_noun_bases(source, expected):
+    assert r(source) == expected
+
+
+def test_bare_name_is_unchanged():
+    assert r("比良") == "Hira"
+
+
 # --- 11. Punctuation -------------------------------------------------------
 
 def test_japanese_punctuation_is_preserved_verbatim():

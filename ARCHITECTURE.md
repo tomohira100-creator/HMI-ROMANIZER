@@ -257,13 +257,19 @@ Total installer size: ~3 GB.
 
 ## Known Limitations and Open Questions
 
-**Honorific suffixes are joined to the name.** `比良さん` romanizes as `Hirasan`
-rather than `Hira-san` or `Hira San`. The word-grouping rule joins every
-`接尾辞` to the preceding word, which is right for `です` and for `日本人`
-(`Nipponjin`) and wrong for `さん`, `様`, `氏` and `殿`. The distinction UniDic
-does not draw is honorific versus grammatical: both are tagged `接尾辞`, so part
-of speech alone cannot separate them. A fix needs an explicit list of honorifics
-and a decision on whether to hyphenate or space them. Unresolved.
+**Honorific and title suffixes are separated from the name. (Closed.)**
+`比良さん` romanizes as `Hira San` — space-separated, each word capitalized.
+Part of speech alone cannot decide this: UniDic tags `さん` and the grammatical
+`人` in `日本人` alike as `接尾辞`. The rule keys on two things together: an
+explicit honorific list (`さん 様 氏 殿 君 ちゃん`), and the preceding word being
+a proper noun (`pos2 == 固有名詞`). The proper-noun gate is what keeps `お客様`
+(which HMI documents use constantly) as `Okyakusama` and `神様` as `Kamisama`,
+while `比良さん` detaches — those attach a suffix to a common noun. Job titles
+`部長`/`課長` tokenize as `部`/`課` (`助数詞可能`) + `長`; the same proper-noun
+gate stops `部`/`課` gluing onto the surname, giving `比良部長` → `Hira Buchō`.
+Single-token titles (`社長`, `専務`, `常務`, `係長`) were always separate.
+Residual: MeCab mis-tags the standalone `王` as a surname, so `王様` → `Ō Sama`;
+rare and accepted.
 
 **Fullwidth Latin and digits pass through unconverted.** `ＨＭＩホテル` becomes
 `ＨＭＩ Hoteru`, and `令和８年` becomes `Reiwa ８ Nen`. Latin runs are emitted

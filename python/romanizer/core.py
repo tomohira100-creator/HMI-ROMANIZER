@@ -218,13 +218,15 @@ def _apply_counters(tokens):
 #
 # A UniDic morpheme is not a word. Rules, in order of application:
 #
-#   suffix (接尾辞)      joins the preceding word     日本 + 人 -> Nipponjin
-#   auxiliary (助動詞)   joins only after a verb or   読ん + だ -> Yonda
+#   honorific suffix     detaches from a proper-noun  比良 + さん -> Hira San
+#   (接尾辞, listed)      NAME, but not a common noun  お客 + 様  -> Okyakusama
+#   suffix (接尾辞)      otherwise joins the word     日本 + 人  -> Nipponjin
+#   auxiliary (助動詞)   joins only after a verb or   読ん + だ  -> Yonda
 #                        adjective, so that です      学生 + です -> Gakusei desu
 #                        after a noun stays separate
-#   bound counter noun   joins the preceding word     四半 + 期 -> Shihanki
-#   (助数詞可能)         unless the preceding word    飛行 + 機 -> Hikōki
-#                        is a numeral                 5 + 月    -> 5 Gatsu
+#   bound counter noun   joins the word it counts     四半 + 期 -> Shihanki
+#   (助数詞可能)         but not a numeral or a       飛行 + 機 -> Hikōki
+#                        proper-noun NAME             比良 + 部長 -> Hira Buchō
 #   prefix (接頭辞)      joins the following word     新 + 一   -> Shin'ichi
 #                        unless it is a digit         第 + 3    -> Dai 3
 #   conjunctive て/で    joins a verb or adjective     行っ + て -> Itte
@@ -232,6 +234,18 @@ def _apply_counters(tokens):
 #   particle (助詞)      otherwise stands alone       私 は     -> Watashi wa
 
 _INFLECTABLE = ("動詞", "形容詞", "助動詞")
+
+#: Honorific and title suffixes that detach from a personal or place NAME so it
+#: reads "Hira San", not "Hirasan". This must be an explicit list, not "every
+#: 接尾辞": 日本人's 人 is also a 接尾辞 and must stay joined as "Nipponjin".
+#:
+#: Detachment is gated on the preceding word being a proper noun (pos2 ==
+#: 固有名詞). Without that gate, お客様 -- which HMI documents use constantly --
+#: would split to "Okyaku Sama", and 神様/皆様/お子様 likewise. Those attach 様
+#: to a COMMON noun; only a proper-noun base detaches.
+_HONORIFIC_SUFFIXES = frozenset({"さん", "様", "氏", "殿", "君", "ちゃん"})
+
+_PROPER_NOUN = "固有名詞"
 
 #: The conjunctive particles て and で attach to the stem they inflect. Leaving
 #: them separate does not merely look wrong, it destroys information: MeCab
@@ -250,12 +264,13 @@ _CONJUNCTIVE_PARTICLES = frozenset({"て", "で"})
 
 
 class _Word:
-    __slots__ = ("pron", "kana", "pos1", "literal", "surface")
+    __slots__ = ("pron", "kana", "pos1", "pos2", "literal", "surface")
 
     def __init__(self, token):
         self.pron = token.pron
         self.kana = token.kana or token.pron
         self.pos1 = token.pos1
+        self.pos2 = token.pos2
         self.literal = token.literal
         self.surface = token.surface
 
@@ -278,6 +293,12 @@ def _joins_left(token, previous):
         # otherwise romanize to an empty atom and leave a doubled space.
         return True
     if token.pos1 == "接尾辞":
+        # An honorific or title suffix detaches from a proper-noun NAME, so
+        # 比良さん reads "Hira San". Common-noun bases keep the suffix joined:
+        # お客様 -> "Okyakusama", 神様 -> "Kamisama". Non-honorific 接尾辞 (人,
+        # さ, たち) always join, so 日本人 stays "Nipponjin".
+        if token.surface in _HONORIFIC_SUFFIXES and previous.pos2 == _PROPER_NOUN:
+            return False
         return True
     if (
         token.pos1 == "助詞"
@@ -288,6 +309,13 @@ def _joins_left(token, previous):
     if token.pos1 == "助動詞":
         return previous.pos1 in _INFLECTABLE
     if token.pos1 == "名詞" and token.pos3 == "助数詞可能":
+        # A bound counter noun glues onto the word it counts (四半 + 期 ->
+        # Shihanki) but not onto a proper-noun NAME. The job titles 部長/課長
+        # tokenize as 部/課 (助数詞可能) + 長, and 部/課 would otherwise bind to
+        # the surname, giving "Hirabuchō". The only 固有名詞 + 助数詞可能 pairs
+        # in practice are these titles; 四半期/飛行機 have common-noun bases.
+        if previous.pos2 == _PROPER_NOUN:
+            return False
         return previous.pos1 != "" and not _is_numeral_word(previous)
     return False
 
@@ -314,6 +342,7 @@ def _group_words(tokens):
                 word = _Word(pending_prefix)
                 word.absorb(token)
                 word.pos1 = token.pos1
+                word.pos2 = token.pos2
                 words.append(word)
             pending_prefix = None
             continue

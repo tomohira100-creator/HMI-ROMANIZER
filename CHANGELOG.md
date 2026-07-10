@@ -9,6 +9,21 @@ a versioned library. Each entry records the commit that introduced the change.
 
 ## [Unreleased]
 
+### Fixed
+
+- Honorific and title suffixes now detach from a name (open item #1, closed).
+  `比良さん` was `Hirasan`; it is now `Hira San`, space-separated and each word
+  capitalized. The rule keys on an explicit honorific list (`さん 様 氏 殿 君
+  ちゃん`) **and** the preceding word being a proper noun (`pos2 == 固有名詞`),
+  because part of speech alone cannot separate the honorific `さん` from the
+  grammatical `人` in `日本人`, both tagged `接尾辞`. The proper-noun gate keeps
+  `お客様` → `Okyakusama`, `神様` → `Kamisama`, and `日本人` → `Nipponjin`
+  joined, while `比良さん`/`田中様`/`スミスさん` detach. The same gate stops a
+  `助数詞可能` noun gluing onto a name, so the titles `比良部長`/`比良課長`
+  (tokenized `部`/`課` + `長`) become `Hira Buchō`/`Hira Kachō`; `四半期` and
+  `飛行機`, whose bases are common nouns, are unaffected. Single-token titles
+  (`社長`, `専務`, `常務`, `係長`) were always separate and are unchanged.
+
 ### Documentation
 
 - `ARCHITECTURE.md`: added a "No Network Calls at Runtime" design-constraint
