@@ -219,6 +219,17 @@ The installer includes:
 
 Total installer size: ~3 GB.
 
+## Validation Corpus
+
+`samples/expected/` holds documents a human romanized by hand, paired with their
+Japanese originals in `samples/`, so Phase 10 can measure accuracy by diffing
+ROMANIZER's output against a person's answer rather than by eyeballing whether
+the output looks plausible. The pairs are `見積書`, `工事工程表`,
+`ホテルクラウンパレス小倉改修工事見積書`, `R)【御見積書】260610`,
+`【御見積書20260316】PC神戸本工事`, and the Maison d'Aura workbook; they are
+expected outputs, never inputs, and neither they nor the originals are ever
+committed.
+
 ## Build Pipeline
 
 - **Mac dev:** `npm run tauri dev` runs the full app locally for testing
