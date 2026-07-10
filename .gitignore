@@ -25,9 +25,14 @@ src-tauri/target/
 *.msi
 *.exe
 
-# Samples (often large, keep them local only)
+# Samples (often large, keep them local only).
+# Real HMI documents must never be committed. Redaction is not a security
+# boundary this project relies on, so exclusion is enforced here rather than
+# by discipline. Only the deterministically synthesized fixtures are tracked.
 samples/*
 !samples/README.md
+!samples/05_lists.docx
+!samples/10_composite.docx
 
 # Logs and temp
 *.log

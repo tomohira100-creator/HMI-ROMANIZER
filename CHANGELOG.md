@@ -9,6 +9,31 @@ a versioned library. Each entry records the commit that introduced the change.
 
 ## [Unreleased]
 
+### Added
+
+- `python/tests/fixtures/build_fixtures.py`: deterministic synthesis of
+  `samples/05_lists.docx` and `samples/10_composite.docx` using `zipfile` and
+  `lxml` only, with no `python-docx` dependency. Rebuilds are byte-identical.
+- `samples/README.md`: what each of the ten samples must contain, and an
+  explicit statement that a green suite over the synthesized fixtures is a
+  necessary but not sufficient condition for correctness on real Word
+  documents.
+- `python/tests/test_samples.py`: 17 tests over the fixtures, plus one xfail.
+
+### Changed
+
+- `.gitignore`: whitelists only `samples/README.md` and the two synthesized
+  fixtures. Real HMI documents cannot be committed by accident; the exclusion
+  is enforced by the ignore file rather than by discipline.
+
+### Deferred
+
+- Romanizing `numbering.xml` `w:lvlText` (decision D7). `05_lists.docx` carries
+  the Japanese numbering literals `第%1章` and `%2項`, and
+  `test_numbering_literals_are_romanized` is marked xfail with a reference to
+  D7. It xpasses on its own the day the work lands, rather than needing to be
+  remembered.
+
 ### Documentation
 
 - `ARCHITECTURE.md`: recorded the compound-splitting limitation as a stated
