@@ -1,0 +1,18 @@
+{
+  "_comment": "Tokens that must never be downcased by Title Case. This list protects existing uppercase; it does not upcase English prose. Extend as HMI-specific abbreviations appear.",
+  "abbreviations": [
+    "HMI",
+    "NTT",
+    "ANA",
+    "JR",
+    "JPY",
+    "USD",
+    "KPI",
+    "REIT",
+    "FFE",
+    "OSE",
+    "HR",
+    "IT",
+    "AI"
+  ]
+}

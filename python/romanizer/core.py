@@ -1,0 +1,523 @@
+"""The romanization engine: Japanese text in, Hepburn romaji out.
+
+Pure text transformation. No file I/O, no format-specific logic.
+
+Pipeline
+    1. Custom-term substitution over the raw string (longest match wins).
+       Replacements become literal spans, immune to everything downstream.
+    2. Script segmentation into runs. Only Japanese runs reach MeCab.
+       Latin, punctuation and whitespace are passed through byte for byte,
+       which is what preserves 、。「」【】× rather than rewriting them.
+    3. Morphological analysis of Japanese runs via MeCab + UniDic.
+    4. Counter correction for 日 and 月 following a numeral.
+    5. Grouping of morphemes into words, since a morpheme is not a word:
+       読ん + だ is one word, Yonda, not two.
+    6. Romanization of each word from its kana and pron readings.
+    7. Title Case, with particles, the copula and conjunctions left lower.
+"""
+
+import csv
+import re
+import unicodedata
+
+from . import dictionary as _dictionary
+from .hepburn import kana_to_romaji
+
+# --- UniDic feature vector -------------------------------------------------
+#
+# UniDic 3.1.0 emits 29 comma-separated fields, but the accent-condition
+# fields are quoted and contain commas themselves ("B4WW7G9G,B4WW"), so the
+# vector must be parsed as CSV, not split on commas. Numerals and unknown
+# words emit a short vector with no reading at all.
+#
+# Field indices differ between UniDic releases: kana is field 20 here but
+# field 17 in unidic-lite's UniDic 2.x. Reading the wrong index silently
+# destroys every macron, so the index is asserted at import by
+# tests/test_unidic_schema.py and pinned in pyproject.toml.
+
+_POS1 = 0
+_POS2 = 1
+_POS3 = 2
+_PRON = 9
+_KANA = 20
+_MIN_FIELDS_WITH_READING = 21
+
+_UNKNOWN = "*"
+
+_tagger = None
+
+
+def _get_tagger():
+    global _tagger
+    if _tagger is None:
+        import MeCab
+        import unidic
+
+        try:
+            _tagger = MeCab.Tagger("-d {}".format(unidic.DICDIR))
+        except RuntimeError:
+            _tagger = MeCab.Tagger("-r /dev/null -d {}".format(unidic.DICDIR))
+    return _tagger
+
+
+def _parse_features(feature):
+    return next(csv.reader([feature]))
+
+
+class _Token:
+    __slots__ = ("surface", "pos1", "pos2", "pos3", "pron", "kana", "literal")
+
+    def __init__(self, surface, pos1, pos2, pos3, pron, kana, literal=None):
+        self.surface = surface
+        self.pos1 = pos1
+        self.pos2 = pos2
+        self.pos3 = pos3
+        self.pron = pron
+        self.kana = kana
+        # When set, romanization is bypassed and this string is emitted.
+        self.literal = literal
+
+    @property
+    def is_numeral(self):
+        return self.pos1 == "名詞" and self.pos2 == "数詞"
+
+    @property
+    def is_digit_numeral(self):
+        return self.is_numeral and _DIGITS_ONLY.match(self.surface) is not None
+
+
+_DIGITS_ONLY = re.compile(r"^[0-9０-９]+$")
+
+
+def _tokenize(text):
+    tagger = _get_tagger()
+    tokens = []
+    node = tagger.parseToNode(text)
+    while node:
+        if node.surface:
+            f = _parse_features(node.feature)
+
+            def field(index):
+                if len(f) > index and f[index] != _UNKNOWN:
+                    return f[index]
+                return ""
+
+            pron = field(_PRON)
+            kana = field(_KANA) if len(f) >= _MIN_FIELDS_WITH_READING else ""
+            tokens.append(
+                _Token(
+                    node.surface,
+                    f[_POS1] if f else "",
+                    field(_POS2),
+                    field(_POS3),
+                    pron,
+                    kana,
+                )
+            )
+        node = node.next
+    return tokens
+
+
+# --- Counters --------------------------------------------------------------
+#
+# MeCab reads 日 as カ after every arabic numeral, including 21日, and reads
+# 月 as ツキ rather than ガツ. It supplies no usable signal, so the readings
+# below are ours (decision D4).
+#
+# The irregular day readings already contain the number: 二十日 is Hatsuka,
+# not "20 Hatsuka". For those the numeral is absorbed into the reading. All
+# other days keep the numeral and take Nichi, matching the PRD's
+# 1月21日 -> "1 Gatsu 21 Nichi".
+
+_IRREGULAR_DAYS = {
+    1: "Tsuitachi",
+    2: "Futsuka",
+    3: "Mikka",
+    4: "Yokka",
+    5: "Itsuka",
+    6: "Muika",
+    7: "Nanoka",
+    8: "Yōka",
+    9: "Kokonoka",
+    10: "Tōka",
+    14: "Jūyokka",
+    20: "Hatsuka",
+    24: "Nijūyokka",
+}
+
+_COUNTER_READINGS = {
+    "月": ("ガツ", "ガツ"),
+    "日": ("ニチ", "ニチ"),
+    "年": ("ネン", "ネン"),
+}
+
+
+def _to_int(surface):
+    return int(unicodedata.normalize("NFKC", surface))
+
+
+def _apply_counters(tokens):
+    out = []
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+        nxt = tokens[index + 1] if index + 1 < len(tokens) else None
+
+        if token.is_digit_numeral and nxt is not None and nxt.surface in _COUNTER_READINGS:
+            value = _to_int(token.surface)
+            if nxt.surface == "日" and value in _IRREGULAR_DAYS:
+                # The numeral is absorbed: 20日 -> Hatsuka.
+                out.append(
+                    _Token("{}日".format(token.surface), "名詞", "", "",
+                           "", "", literal=_IRREGULAR_DAYS[value])
+                )
+                index += 2
+                continue
+            pron, kana = _COUNTER_READINGS[nxt.surface]
+            out.append(token)
+            out.append(_Token(nxt.surface, "名詞", "", "", pron, kana))
+            index += 2
+            continue
+
+        out.append(token)
+        index += 1
+    return out
+
+
+# --- Word grouping ---------------------------------------------------------
+#
+# A UniDic morpheme is not a word. Rules, in order of application:
+#
+#   suffix (接尾辞)      joins the preceding word     日本 + 人 -> Nipponjin
+#   auxiliary (助動詞)   joins only after a verb or   読ん + だ -> Yonda
+#                        adjective, so that です      学生 + です -> Gakusei desu
+#                        after a noun stays separate
+#   bound counter noun   joins the preceding word     四半 + 期 -> Shihanki
+#   (助数詞可能)         unless the preceding word    飛行 + 機 -> Hikōki
+#                        is a numeral                 5 + 月    -> 5 Gatsu
+#   prefix (接頭辞)      joins the following word     新 + 一   -> Shin'ichi
+#                        unless it is a digit         第 + 3    -> Dai 3
+#   particle (助詞)      always stands alone          私 は     -> Watashi wa
+
+_INFLECTABLE = ("動詞", "形容詞", "助動詞")
+
+
+class _Word:
+    __slots__ = ("pron", "kana", "pos1", "literal", "surface")
+
+    def __init__(self, token):
+        self.pron = token.pron
+        self.kana = token.kana or token.pron
+        self.pos1 = token.pos1
+        self.literal = token.literal
+        self.surface = token.surface
+
+    def absorb(self, token):
+        self.pron += token.pron
+        self.kana += token.kana or token.pron
+        self.surface += token.surface
+
+
+def _joins_left(token, previous):
+    if previous is None or previous.literal is not None:
+        return False
+    if token.pos1 == "接尾辞":
+        return True
+    if token.pos1 == "助動詞":
+        return previous.pos1 in _INFLECTABLE
+    if token.pos1 == "名詞" and token.pos3 == "助数詞可能":
+        return previous.pos1 != "" and not _is_numeral_word(previous)
+    return False
+
+
+def _is_numeral_word(word):
+    return _DIGITS_ONLY.match(word.surface) is not None
+
+
+def _group_words(tokens):
+    words = []
+    pending_prefix = None
+
+    for token in tokens:
+        if token.pos1 == "接頭辞":
+            # 第 before a digit is a word of its own; 新 before 一 is not.
+            pending_prefix = token
+            continue
+
+        if pending_prefix is not None:
+            if token.is_digit_numeral:
+                words.append(_Word(pending_prefix))
+                words.append(_Word(token))
+            else:
+                word = _Word(pending_prefix)
+                word.absorb(token)
+                word.pos1 = token.pos1
+                words.append(word)
+            pending_prefix = None
+            continue
+
+        previous = words[-1] if words else None
+        if token.literal is None and _joins_left(token, previous):
+            previous.absorb(token)
+            continue
+
+        words.append(_Word(token))
+
+    if pending_prefix is not None:
+        words.append(_Word(pending_prefix))
+    return words
+
+
+# --- Particle pronunciation ------------------------------------------------
+#
+# は as wa, へ as e, を as o. We do not decide this ourselves. MeCab has
+# already written the pronounced form into pron, so the only difference we
+# adopt from pron is exactly these three substitutions. Everything else in
+# pron (its collapsed long vowels) is deliberately ignored in favour of kana.
+#
+# This is also what makes こんにちは correct. It is a single interjection
+# token whose kana is コンニチハ but whose pron is コンニチワ, so a rule
+# keyed on part of speech alone would emit Konnichiha.
+
+_PRONUNCIATION_SHIFTS = {("ハ", "ワ"), ("ヘ", "エ"), ("ヲ", "オ")}
+
+
+def _reading(word):
+    kana, pron = word.kana, word.pron
+    if not kana:
+        return pron, pron
+    if len(kana) != len(pron):
+        return pron, kana
+    adjusted = [
+        pron[i] if (kana[i], pron[i]) in _PRONUNCIATION_SHIFTS else kana[i]
+        for i in range(len(kana))
+    ]
+    return pron, "".join(adjusted)
+
+
+# --- Casing ----------------------------------------------------------------
+#
+# Title Case, English style (decision D3): particles, the copula and
+# conjunctions stay lowercase; everything else capitalizes. The first word
+# of a string always capitalizes.
+
+LOWERCASE_WORDS = frozenset(
+    {
+        # Particles: は が を に へ で と も の から まで より
+        "wa", "ga", "o", "ni", "e", "de", "to", "mo", "no",
+        "kara", "made", "yori",
+        # Copula: です だ である
+        "desu", "da", "dearu",
+    }
+)
+
+_LOWERCASE_POS = ("助詞", "助動詞", "接続詞")
+
+
+def _capitalize(romaji):
+    if not romaji:
+        return romaji
+    return romaji[0].upper() + romaji[1:]
+
+
+# --- Script segmentation ---------------------------------------------------
+
+_JP = "JP"
+_LATIN = "LATIN"
+_DIGIT = "DIGIT"
+_PUNCT = "PUNCT"
+_SPACE = "SPACE"
+
+_HIRAGANA = (0x3041, 0x309F)
+_KATAKANA = (0x30A0, 0x30FF)
+_KATAKANA_HALF = (0xFF66, 0xFF9D)
+_KANJI = (0x4E00, 0x9FFF)
+_KANJI_EXT_A = (0x3400, 0x4DBF)
+
+
+def _in(code, span):
+    return span[0] <= code <= span[1]
+
+
+def _classify(char):
+    code = ord(char)
+    if char.isspace() or code == 0x3000:
+        return _SPACE
+    if char.isdigit() and (char.isascii() or _in(code, (0xFF10, 0xFF19))):
+        return _DIGIT
+    if char.isascii() and char.isalpha():
+        return _LATIN
+    if _in(code, (0xFF21, 0xFF3A)) or _in(code, (0xFF41, 0xFF5A)):
+        return _LATIN
+    if (
+        _in(code, _HIRAGANA)
+        or _in(code, _KATAKANA)
+        or _in(code, _KATAKANA_HALF)
+        or _in(code, _KANJI)
+        or _in(code, _KANJI_EXT_A)
+        or char == "々"
+    ):
+        return _JP
+    return _PUNCT
+
+
+def _runs(text):
+    runs = []
+    for char in text:
+        kind = _classify(char)
+        if runs and runs[-1][0] == kind:
+            runs[-1][1] += char
+        else:
+            runs.append([kind, char])
+    return _merge_digits(runs)
+
+
+def _merge_digits(runs):
+    """Attach digit runs to whichever neighbour makes them meaningful.
+
+    A digit beside Latin is part of a token (A4). A digit beside Japanese is
+    part of a phrase MeCab must see whole, so that 5月 can find its counter.
+    A digit standing alone is passed to MeCab, which returns it unchanged.
+    """
+    out = []
+    for index, (kind, text) in enumerate(runs):
+        if kind != _DIGIT:
+            out.append([kind, text])
+            continue
+        prev_kind = runs[index - 1][0] if index else None
+        next_kind = runs[index + 1][0] if index + 1 < len(runs) else None
+        if prev_kind == _LATIN or next_kind == _LATIN:
+            target = _LATIN
+        else:
+            target = _JP
+        if out and out[-1][0] == target:
+            out[-1][1] += text
+        else:
+            out.append([target, text])
+
+    merged = []
+    for kind, text in out:
+        if merged and merged[-1][0] == kind and kind in (_JP, _LATIN):
+            merged[-1][1] += text
+        else:
+            merged.append([kind, text])
+    return merged
+
+
+# --- Atoms and assembly ----------------------------------------------------
+
+_WORDLIKE = ("ROMAJI", "LATIN")
+
+
+def _cased_latin(text, dic):
+    """Latin passes through untouched, except that abbreviations stay upper.
+
+    The abbreviation list protects uppercase rather than creating it, so the
+    English word "It" is not rewritten to "IT".
+    """
+    if text.isupper() and dic.is_abbreviation(text):
+        return text.upper()
+    return text
+
+
+def _romanize_japanese(run, dic, first_word_index):
+    tokens = _apply_counters(_tokenize(run))
+    words = _group_words(tokens)
+
+    atoms = []
+    for word in words:
+        if word.literal is not None:
+            atoms.append(("ROMAJI", word.literal, word))
+            continue
+        if _DIGITS_ONLY.match(word.surface):
+            atoms.append(("ROMAJI", word.surface, word))
+            continue
+        pron, kana = _reading(word)
+        if not pron:
+            # No reading: an unknown token. Emit the surface rather than drop it.
+            atoms.append(("ROMAJI", word.surface, word))
+            continue
+        romaji = kana_to_romaji(pron, kana)
+        atoms.append(("ROMAJI", romaji, word))
+    return atoms
+
+
+def _apply_case(atoms, dic):
+    out = []
+    seen_word = False
+    for kind, text, word in atoms:
+        if kind != "ROMAJI" or word is None:
+            out.append((kind, text))
+            if kind in _WORDLIKE:
+                seen_word = True
+            continue
+        if _DIGITS_ONLY.match(text) or (word.literal is not None):
+            out.append((kind, text))
+            seen_word = True
+            continue
+        lower = text.lower()
+        keep_lower = (
+            seen_word
+            and word.pos1 in _LOWERCASE_POS
+            and lower in LOWERCASE_WORDS
+        )
+        out.append((kind, text if keep_lower else _capitalize(text)))
+        seen_word = True
+    return out
+
+
+def romanize(text, dic=None):
+    """Romanize Japanese text into Modified Hepburn, preserving everything else."""
+    if text is None:
+        raise TypeError("romanize() requires a string, got None")
+    if not isinstance(text, str):
+        raise TypeError("romanize() requires a string, got {}".format(type(text).__name__))
+    if not text.strip():
+        return text
+
+    dic = dic or _dictionary.default()
+
+    atoms = []
+    index = 0
+    buffer = []
+
+    def flush():
+        if not buffer:
+            return
+        chunk = "".join(buffer)
+        buffer.clear()
+        for kind, run in _runs(chunk):
+            if kind == _JP:
+                atoms.extend(_romanize_japanese(run, dic, len(atoms)))
+            elif kind == _LATIN:
+                atoms.append(("LATIN", _cased_latin(run, dic), None))
+            elif kind == _SPACE:
+                atoms.append(("SPACE", run, None))
+            else:
+                atoms.append(("PUNCT", run, None))
+
+    while index < len(text):
+        hit = dic.match_at(text, index)
+        if hit:
+            surface, romaji = hit
+            flush()
+            atoms.append(("ROMAJI", romaji, _Word(_Token(surface, "名詞", "", "", "", "", romaji))))
+            index += len(surface)
+            continue
+        buffer.append(text[index])
+        index += 1
+    flush()
+
+    cased = _apply_case(atoms, dic)
+
+    # A single space separates adjacent word-like atoms. Punctuation and
+    # whitespace are emitted verbatim, so 東京、大阪 keeps its ideographic
+    # comma with no space inserted around it.
+    pieces = []
+    previous_kind = None
+    for kind, value in cased:
+        if kind in _WORDLIKE and previous_kind in _WORDLIKE:
+            pieces.append(" ")
+        pieces.append(value)
+        previous_kind = kind
+    return "".join(pieces)

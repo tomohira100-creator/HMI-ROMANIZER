@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "romanizer"
+version = "0.1.0"
+description = "Hepburn romanization of Japanese text in office documents"
+requires-python = ">=3.9"
+
+# Versions are pinned exactly. The romanizer reads UniDic feature fields by
+# index, and those indices move between UniDic releases: kana is field 20 in
+# UniDic 3.1.0 but field 17 in unidic-lite's UniDic 2.x. Reading the wrong
+# index silently destroys every macron rather than raising, so the schema is
+# asserted at test time by tests/test_unidic_schema.py.
+#
+# unidic 1.1.0 downloads UniDic 3.1.0+2021-08-31 (roughly 770 MB unpacked).
+# Full UniDic is used rather than unidic-lite because HMI documents are dense
+# with rare proper nouns, which is exactly where the lite lexicon degrades.
+dependencies = [
+    "mecab-python3==1.0.12",
+    "unidic==1.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+]
+
+[project.scripts]
+romanizer = "romanizer.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["romanizer*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

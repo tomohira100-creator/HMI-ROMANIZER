@@ -10,8 +10,7 @@
 
 ## Python Dependencies
 
-- `pykakasi` — kana to romaji conversion
-- `mecab-python3` + `unidic` — kanji to reading via morphological analysis
+- `mecab-python3` + `unidic` — kanji to reading via morphological analysis, and the sole source of romanization readings
 - `paddleocr` — Japanese OCR
 - `PyMuPDF` (fitz) — PDF text and layout manipulation
 - `openpyxl` — XLSX manipulation (sanity layer above lxml)
@@ -19,6 +18,15 @@
 - `lxml` — direct XML manipulation for full fidelity
 - `Pillow` — image processing
 - `ReportLab` — PDF and image text rendering
+
+`pykakasi` was removed in Phase 1. It performs no part-of-speech tagging, so it
+cannot tell a particle は from a は inside a word, and its `hepburn` output is
+wapuro-style: no macrons (`toukyou`, not `Tōkyō`) and it rewrites the Japanese
+punctuation the PRD requires be preserved. Readings come from UniDic instead.
+
+The `unidic` version is pinned exactly in `python/pyproject.toml`. UniDic
+feature fields are read by numeric index and those indices move between
+releases, so `python/tests/test_unidic_schema.py` asserts the layout.
 
 ## Directory Structure
 
@@ -45,6 +53,7 @@ HMI-romanizer/
 │   ├── romanizer/
 │   │   ├── __init__.py
 │   │   ├── core.py                     (Phase 1)
+│   │   ├── hepburn.py                  (Phase 1)
 │   │   ├── dictionary.py               (Phase 1)
 │   │   ├── handlers/
 │   │   │   ├── docx_handler.py         (Phase 2)
@@ -69,6 +78,13 @@ HMI-romanizer/
 
 ### `python/romanizer/core.py`
 The romanization engine. Pure function: Japanese string in, romaji string out. Handles Hepburn rules, Title Case, macrons, abbreviation lookups, numbers, punctuation pass-through. No file I/O. No format-specific logic.
+
+### `python/romanizer/hepburn.py`
+The katakana to Modified Hepburn conversion tables and the syllable walker that
+consumes them. Kept separate from `core.py` because the tables are large, are
+pure data, and are expected to be edited during Phase 10 real-world testing.
+Takes UniDic's `pron` reading for vowel length and its `kana` reading for vowel
+identity; neither alone is sufficient.
 
 ### `python/romanizer/dictionary.py`
 Loads `abbreviations.json` and `custom_terms.json` at startup. Provides lookup interface to `core.py`.
