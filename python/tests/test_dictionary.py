@@ -37,6 +37,21 @@ def test_custom_terms_correct_mecab_kanji_date_readings():
     assert romanize("二十四日") == "Nijūyokka"
 
 
+def test_decoration_name_overrides_the_everyday_reading():
+    """旭日中綬章 is the Order of the Rising Sun, Gold Rays with Neck Ribbon.
+
+    MeCab splits it into 旭日 + 中 + 綬章 and reads 旭日 as アサヒ, the everyday
+    reading of the characters, giving "Asahijū Jushō". In the name of the
+    decoration it is キョクジツ. No override on the parts can repair this: only
+    an override on the whole span can. See the compound-splitting limitation
+    in ARCHITECTURE.md.
+    """
+    assert romanize("旭日中綬章") == "Kyokujitsu Chūjushō"
+    assert romanize("旭日中綬章受章") == "Kyokujitsu Chūjushō Jushō"
+    # The constituent words keep their own readings.
+    assert romanize("綬章") == "Jushō"
+
+
 def test_shipped_dictionaries_load():
     dic = dictionary.load()
     assert "株式会社" in dic.custom_terms

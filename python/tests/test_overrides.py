@@ -308,7 +308,9 @@ def test_cli_lint_shipped_dictionary_exits_zero(capsys):
     assert cli.main(["lint-dictionary"]) == 0
     out = capsys.readouterr().out
     assert "株式会社" in out
-    assert "5 entries: 5 ok" in out
+    # Every shipped entry must be live and useful. Asserted by status rather
+    # than by count, so adding an entry does not break this test.
+    assert "dead" not in out and "redundant" not in out and "shadowed" not in out
 
 
 def test_cli_lint_exits_nonzero_on_dead_entry(capsys, tmp_path):
