@@ -103,7 +103,10 @@ EXIT_OK = 0
 EXIT_ERROR = 1
 EXIT_REFUSED = 2
 
-_HANDLERS = {".docx": "romanizer.handlers.docx_handler"}
+_HANDLERS = {
+    ".docx": "romanizer.handlers.docx_handler",
+    ".xlsx": "romanizer.handlers.xlsx_handler",
+}
 
 
 def _run_convert(args):
@@ -125,15 +128,26 @@ def _run_convert(args):
         return EXIT_ERROR
 
     handler = importlib.import_module(_HANDLERS[suffix])
+    # A handler may refuse a document (the DOCX handler refuses tracked
+    # changes); that is a distinct, non-crash outcome, reported with exit code
+    # EXIT_REFUSED. Handlers expose the refusal type as `refusal_error` and
+    # their own error base as `handler_error`.
+    refusal = getattr(handler, "refusal_error", None)
+    handler_error = getattr(handler, "handler_error", Exception)
     try:
         dic = _dictionary.load(args.dict_dir) if args.dict_dir else _dictionary.default()
         handler.convert(source, Path(args.output), dic)
-    except handler.RevisionMarkupError as exc:
-        print(str(exc), file=sys.stderr)
-        return EXIT_REFUSED
-    except (_dictionary.DictionaryError, handler.DocxError) as exc:
+    except _dictionary.DictionaryError as exc:
         print("error: {}".format(exc), file=sys.stderr)
         return EXIT_ERROR
+    except Exception as exc:
+        if refusal is not None and isinstance(exc, refusal):
+            print(str(exc), file=sys.stderr)
+            return EXIT_REFUSED
+        if isinstance(exc, handler_error):
+            print("error: {}".format(exc), file=sys.stderr)
+            return EXIT_ERROR
+        raise
 
     print("wrote {}".format(args.output))
     return EXIT_OK

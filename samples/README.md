@@ -24,6 +24,7 @@ by discipline, so a real document cannot be committed by accident.
 | `09_textbox.docx` | Microsoft Word | no |
 | `10_composite.docx` | **synthesized** | **yes** |
 | `11_fragmented.docx` | **synthesized** | **yes** |
+| `12_spreadsheet.xlsx` | **synthesized** | **yes** |
 | the real board paper | HMI | never |
 
 Regenerate the synthesized fixtures with:

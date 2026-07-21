@@ -104,6 +104,12 @@ class RevisionMarkupError(DocxError):
         )
 
 
+#: CLI integration: the base error, and the refusal type reported as a distinct
+#: non-crash outcome.
+handler_error = DocxError
+refusal_error = RevisionMarkupError
+
+
 def find_revision_markup(package):
     """Every revision tag present anywhere in the package, not just document.xml."""
     found = []

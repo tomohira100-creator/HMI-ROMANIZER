@@ -482,11 +482,143 @@ def build_11():
     write_docx(SAMPLES / "11_fragmented.docx", parts)
 
 
+# --- 12_spreadsheet.xlsx ---------------------------------------------------
+#
+# A minimal but real XLSX exercising every path the handler touches, plus an
+# untouched image to prove byte-identity. Modelled on the structure found in
+# the real Maison d'Aura estimate: Japanese in shared strings, Japanese sheet
+# names (one with a trailing space, referenced quoted), cross-sheet formula
+# references (quoted and unquoted), a formula string literal, a t="str" cached
+# value, a merged cell, a Japanese header, and a print-area defined name.
+#
+# Japanese content is drawn from the Phase 1 corpus so a wrong romanization is
+# wrong in an already-characterised way.
+
+SS_NS = 'xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"'
+SS_R = 'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"'
+XL_REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+
+
+def _xl_content_types():
+    body = "".join(
+        [
+            '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>',
+            '<Default Extension="xml" ContentType="application/xml"/>',
+            '<Default Extension="png" ContentType="image/png"/>',
+            '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>',
+            '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>',
+            '<Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>',
+            '<Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/>',
+            '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>',
+        ]
+    )
+    return DECL + "<Types {}>{}</Types>".format(CT_NS, body)
+
+
+def build_12():
+    workbook = DECL + (
+        "<workbook {ns} {r}>"
+        "<sheets>"
+        '<sheet name="内訳" sheetId="1" r:id="rId1"/>'
+        '<sheet name="表紙 " sheetId="2" r:id="rId2"/>'
+        "</sheets>"
+        "<definedNames>"
+        # Print area on the trailing-space sheet: appears quoted.
+        "<definedName name=\"_xlnm.Print_Area\" localSheetId=\"1\">'表紙 '!$A$1:$B$1</definedName>"
+        # Print area on 内訳: appears unquoted.
+        '<definedName name="_xlnm.Print_Area" localSheetId="0">内訳!$A$1:$E$1</definedName>'
+        "</definedNames>"
+        "</workbook>"
+    ).format(ns=SS_NS, r=SS_R)
+
+    workbook_rels = DECL + (
+        "<Relationships {}>"
+        '<Relationship Id="rId1" Type="{b}/worksheet" Target="worksheets/sheet1.xml"/>'
+        '<Relationship Id="rId2" Type="{b}/worksheet" Target="worksheets/sheet2.xml"/>'
+        '<Relationship Id="rId3" Type="{b}/sharedStrings" Target="sharedStrings.xml"/>'
+        '<Relationship Id="rId4" Type="{b}/styles" Target="styles.xml"/>'
+        "</Relationships>"
+    ).format(RELS_NS, b=XL_REL)
+
+    # Shared strings, index 0..2, drawn from the Phase 1 corpus.
+    shared = DECL + (
+        '<sst {ns} count="3" uniqueCount="3">'
+        "<si><t>株式会社</t></si>"
+        "<si><t>東京</t></si>"
+        "<si><t>合計</t></si>"
+        "</sst>"
+    ).format(ns=SS_NS)
+
+    # sheet1 (内訳): shared-string cell, a quoted cross-sheet reference to the
+    # trailing-space sheet, a formula string literal, a t="str" cached value,
+    # a merged cell, and a Japanese header.
+    sheet1 = DECL + (
+        "<worksheet {ns} {r}>"
+        "<sheetData>"
+        '<row r="1">'
+        '<c r="A1" t="s"><v>0</v></c>'                       # 株式会社
+        "<c r=\"B1\"><f>'表紙 '!A1</f><v>0</v></c>"           # quoted cross-ref
+        '<c r="C1"><f>A1&amp;"合計"</f><v>0</v></c>'          # formula literal
+        '<c r="D1" t="str"><f>A1</f><v>東京</v></c>'          # cached str value
+        '<c r="E1" t="s"><v>1</v></c>'                       # 東京
+        "</row>"
+        "</sheetData>"
+        '<mergeCells count="1"><mergeCell ref="A1:B1"/></mergeCells>'
+        "<headerFooter><oddHeader>&amp;C株式会社</oddHeader></headerFooter>"
+        "</worksheet>"
+    ).format(ns=SS_NS, r=SS_R)
+
+    # sheet2 (表紙 ): a shared-string cell and an unquoted cross-sheet reference.
+    sheet2 = DECL + (
+        "<worksheet {ns} {r}>"
+        "<sheetData>"
+        '<row r="1">'
+        '<c r="A1" t="s"><v>1</v></c>'                       # 東京
+        "<c r=\"B1\"><f>内訳!A1</f><v>0</v></c>"              # unquoted cross-ref
+        "</row>"
+        "</sheetData>"
+        "</worksheet>"
+    ).format(ns=SS_NS, r=SS_R)
+
+    styles = DECL + (
+        "<styleSheet {ns}>"
+        "<fonts count=\"1\"><font><sz val=\"11\"/><name val=\"Calibri\"/></font></fonts>"
+        '<fills count="1"><fill><patternFill patternType="none"/></fill></fills>'
+        '<borders count="1"><border/></borders>'
+        '<cellStyleXfs count="1"><xf/></cellStyleXfs>'
+        '<cellXfs count="1"><xf/></cellXfs>'
+        '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>'
+        "</styleSheet>"
+    ).format(ns=SS_NS)
+
+    parts = {
+        "[Content_Types].xml": _xl_content_types(),
+        "_rels/.rels": DECL
+        + (
+            "<Relationships {}>"
+            '<Relationship Id="rId1" Type="{b}/officeDocument" Target="xl/workbook.xml"/>'
+            "</Relationships>"
+        ).format(RELS_NS, b=XL_REL),
+        "xl/workbook.xml": workbook,
+        "xl/_rels/workbook.xml.rels": workbook_rels,
+        "xl/worksheets/sheet1.xml": sheet1,
+        "xl/worksheets/sheet2.xml": sheet2,
+        "xl/sharedStrings.xml": shared,
+        "xl/styles.xml": styles,
+        # An untouched binary part: the byte-identity anchor.
+        "xl/media/image1.png": tiny_png(),
+    }
+    write_docx(SAMPLES / "12_spreadsheet.xlsx", parts)
+
+
 def main():
     build_05()
     build_10()
     build_11()
-    for name in ("05_lists.docx", "10_composite.docx", "11_fragmented.docx"):
+    build_12()
+    for name in (
+        "05_lists.docx", "10_composite.docx", "11_fragmented.docx", "12_spreadsheet.xlsx",
+    ):
         print("wrote samples/{}".format(name))
 
 
