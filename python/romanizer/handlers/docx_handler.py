@@ -11,7 +11,7 @@ field *results*, with no per-construct code. Formatting lives in siblings
 Preservation is therefore structural rather than enumerated: the only thing
 mutated is the `.text` of a `w:t`, plus an `xml:space` attribute when the new
 text has significant leading or trailing whitespace. Untouched parts are
-copied byte for byte by `docx_parts.Package`.
+copied byte for byte by `ooxml_parts.Package`.
 
 Field *codes* (`w:instrText`) are never romanized -- rewriting ` PAGE ` breaks
 the field. They act as segment boundaries instead.
@@ -48,7 +48,7 @@ from lxml import etree
 
 from .. import dictionary as _dictionary
 from ..core import romanize_spans
-from ..docx_parts import Package, is_xml_part
+from ..ooxml_parts import Package, is_xml_part
 
 W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 XML_SPACE = "{http://www.w3.org/XML/1998/namespace}space"
