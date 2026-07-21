@@ -44,6 +44,17 @@ def build_parser():
     convert_cmd.add_argument(
         "--dict-dir", default=None, help="override the dictionaries directory"
     )
+
+    diff_cmd = subparsers.add_parser(
+        "diff-xlsx",
+        help="compare our romanization of an .xlsx against a human reference",
+    )
+    diff_cmd.add_argument("original", help="the Japanese .xlsx original")
+    diff_cmd.add_argument("expected", help="the hand-romanized reference .xlsx")
+    diff_cmd.add_argument("--limit", type=int, default=None, help="cap rows shown")
+    diff_cmd.add_argument(
+        "--dict-dir", default=None, help="override the dictionaries directory"
+    )
     return parser
 
 
@@ -163,8 +174,27 @@ def main(argv=None):
         return _run_lint(args)
     if args.command == "convert":
         return _run_convert(args)
+    if args.command == "diff-xlsx":
+        return _run_diff_xlsx(args)
     parser.error("unknown command")
     return EXIT_ERROR
+
+
+def _run_diff_xlsx(args):
+    from pathlib import Path
+
+    from . import corpus_diff
+
+    dic = _dictionary.load(args.dict_dir) if args.dict_dir else _dictionary.default()
+    try:
+        divergences, summary = corpus_diff.compare_xlsx(
+            Path(args.original), Path(args.expected), dic
+        )
+    except (FileNotFoundError, KeyError, ValueError) as exc:
+        print("diff error: {}".format(exc), file=sys.stderr)
+        return EXIT_ERROR
+    print(corpus_diff.format_report(divergences, summary, args.limit))
+    return EXIT_OK
 
 
 if __name__ == "__main__":

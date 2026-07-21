@@ -540,12 +540,16 @@ def build_12():
         "</Relationships>"
     ).format(RELS_NS, b=XL_REL)
 
-    # Shared strings, index 0..2, drawn from the Phase 1 corpus.
+    # Shared strings, index 0..3, drawn from the Phase 1 corpus. Index 3 carries
+    # an <rPh> phonetic ruby (件名 with reading ケンメイ) plus a <phoneticPr>;
+    # both must be stripped, and the reading must not be romanized twice.
     shared = DECL + (
-        '<sst {ns} count="3" uniqueCount="3">'
+        '<sst {ns} count="4" uniqueCount="4">'
         "<si><t>株式会社</t></si>"
         "<si><t>東京</t></si>"
         "<si><t>合計</t></si>"
+        '<si><t>件名</t><rPh sb="0" eb="2"><t>ケンメイ</t></rPh>'
+        '<phoneticPr fontId="2"/></si>'
         "</sst>"
     ).format(ns=SS_NS)
 
@@ -561,6 +565,7 @@ def build_12():
         '<c r="C1"><f>A1&amp;"合計"</f><v>0</v></c>'          # formula literal
         '<c r="D1" t="str"><f>A1</f><v>東京</v></c>'          # cached str value
         '<c r="E1" t="s"><v>1</v></c>'                       # 東京
+        '<c r="F1" t="s"><v>3</v></c>'                       # 件名 (has ruby)
         "</row>"
         "</sheetData>"
         '<mergeCells count="1"><mergeCell ref="A1:B1"/></mergeCells>'

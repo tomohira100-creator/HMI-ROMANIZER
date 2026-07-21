@@ -73,10 +73,24 @@ def _serialize(root):
 # --- Shared strings --------------------------------------------------------
 
 def _romanize_shared_strings(blob, dic):
-    """Romanize every <t> in place. The <si> count and order are untouched, so
-    every worksheet cell index stays valid and no sheet needs rewriting."""
+    """Romanize every display <t> in place, first stripping phonetic ruby.
+
+    An <si> may carry <rPh> phonetic runs -- a katakana reading of the kanji in
+    the main text, shown as ruby -- plus a <phoneticPr>. Romanizing the ruby as
+    if it were text doubles the reading (式 with ruby シキ became "Shiki Shiki").
+    Once the main text is romanized the ruby is meaningless, and Excel would
+    render katakana over Latin, so it is removed. The human reference removes it
+    too: 0 of its strings retain <rPh>.
+
+    The <si> count and order are never changed, so every worksheet cell index
+    stays valid and no sheet needs rewriting on account of the strings.
+    """
     root = etree.fromstring(blob)
     changed = False
+    for si in root.iter(M + "si"):
+        for phonetic in si.findall(M + "rPh") + si.findall(M + "phoneticPr"):
+            si.remove(phonetic)
+            changed = True
     for node in root.iter(M + "t"):
         if _has_japanese(node.text):
             node.text = romanize(node.text, dic)

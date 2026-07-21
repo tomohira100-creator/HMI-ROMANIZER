@@ -85,8 +85,17 @@ def test_only_expected_parts_changed(converted):
 def test_shared_strings_romanized_in_place(converted):
     # Same count, same order -- indices preserved.
     assert strings(parts(converted)["xl/sharedStrings.xml"]) == [
-        "Kabushiki Gaisha", "Tōkyō", "Gōkei",
+        "Kabushiki Gaisha", "Tōkyō", "Gōkei", "Kenmei",
     ]
+
+
+def test_phonetic_ruby_is_stripped_not_doubled(converted):
+    """件名 carries ruby ケンメイ; romanizing it too would give 'Kenmei Kenmei'."""
+    root = etree.fromstring(parts(converted)["xl/sharedStrings.xml"])
+    assert root.findall(".//" + M + "rPh") == []
+    assert root.findall(".//" + M + "phoneticPr") == []
+    assert "Kenmei" in strings(parts(converted)["xl/sharedStrings.xml"])
+    assert "Kenmei Kenmei" not in strings(parts(converted)["xl/sharedStrings.xml"])
 
 
 def test_shared_string_count_and_order_unchanged(converted):
@@ -215,5 +224,5 @@ def test_cli_converts_xlsx(tmp_path, capsys):
     assert out.exists()
     assert "wrote" in capsys.readouterr().out
     assert strings(parts(out)["xl/sharedStrings.xml"]) == [
-        "Kabushiki Gaisha", "Tōkyō", "Gōkei",
+        "Kabushiki Gaisha", "Tōkyō", "Gōkei", "Kenmei",
     ]
