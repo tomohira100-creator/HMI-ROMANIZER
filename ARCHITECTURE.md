@@ -178,6 +178,34 @@ absent), destroys structure (assigning to `run.text` drops `w:br` and `w:tab`
 from the run), and does not parse `footnotes.xml` at all. Its packaging layer
 round-trips losslessly; its convenience API does not.
 
+### `python/romanizer/handlers/xlsx_handler.py`
+Romanizes a workbook on raw `zipfile` + `lxml`, reusing `ooxml_parts.Package`.
+Almost all display text is in `xl/sharedStrings.xml`; cells reference it by
+index, so strings are romanized **in place** -- same `<si>` count and order --
+and no worksheet moves on account of them. The table is never deduped or
+reordered: two Japanese strings can romanize to the same romaji, and merging
+them would reindex every referencing cell.
+
+Targeted edits beyond shared strings: sheet names in `workbook.xml` and every
+reference to them (cross-sheet formula refs and print-area defined names, which
+carry sheet names); formula string literals (`B52&"合計"`); cached `t="str"`
+values; and header/footer text. Sheet references use single quotes and string
+literals use double quotes, so the two never collide; a romanized name may gain
+a space (`Mitsumori Jōken`), so rewritten refs are always emitted quoted.
+
+`<rPh>` phonetic ruby and `<phoneticPr>` are stripped, not romanized: the ruby
+is a katakana reading of the kanji, meaningless once the text is Latin, and
+Excel would render it over the romaji. `openpyxl` is not used -- it drops
+drawings, printer settings and headers on a round-trip and rewrites every
+shared string inline; the human reference keeps all of those.
+
+### `python/romanizer/corpus_diff.py`
+Compares our romanization of an `.xlsx` against a human reference in
+`samples/expected/`, aligning by shared-string index. Each divergence is
+classified -- `macron-only`, `spacing-case`, `substantive` -- so the reference
+is treated as a reference, not an oracle (see the Validation Corpus section).
+Exposed as `python -m romanizer diff-xlsx`.
+
 ### `python/romanizer/handlers/*.py`
 Format-specific file handlers. Each one:
 - Takes an input file path and output file path
@@ -282,6 +310,21 @@ characters in ways that need review. Open, undecided, deliberately untouched.
 `Itte Iru`. Standard Hepburn practice writes the auxiliary lowercase. This is a
 Title Case question rather than a correctness one.
 
+**Compound words spaced with U+3000 are misread. (Open, deferred -- decision
+D2.)** HMI estimate sheets space kanji headers with the ideographic space for
+column alignment: `数　量`, `名　称`, `金　　額`. MeCab tokenizes each kanji
+separately and reads it in isolation, so `数量` (Sūryō) becomes `Kazu Ryō` and
+`金額` (Kingaku) becomes `Kane Gaku`. This is the single largest source of
+`substantive` divergences from the human reference in the Maison d'Aura
+workbook. Do not collapse U+3000 on a guess: some genuinely separate words, and
+merging those would be a new class of error. The Maison d'Aura pair shows the
+right fix, which is also the offline, author-grounded reading source the
+no-network constraint wants: XLSX cells carry the correct reading in their
+`<rPh>` phonetic ruby (`数量`'s ruby is `スウリョウ`), so romanizing from the
+ruby when present sidesteps the tokenization entirely. Weigh this when D2 is
+taken up; it is a design change, not a spot fix, and it applies only to formats
+that carry ruby.
+
 ## DOCX Findings from the Real Corpus
 
 Measured across six real HMI documents, 51,858 Japanese tokens, before the
@@ -322,6 +365,18 @@ the output looks plausible. The pairs are `見積書`, `工事工程表`,
 `【御見積書20260316】PC神戸本工事`, and the Maison d'Aura workbook; they are
 expected outputs, never inputs, and neither they nor the originals are ever
 committed.
+
+**The corpus is a reference, not an oracle.** When our output diverges from the
+human's, sometimes we are wrong -- a misread vendor or construction term -- and
+sometimes the human took a shortcut: a dropped macron, a katakana English
+loanword translated to English (`メインルーム` written `Main Room`, which is
+translation, a PRD non-goal, not romanization), an inconsistent hyphenation.
+These are not the same finding and must not be reported alike, or a macron typo
+drowns out a real misreading. `corpus_diff` classifies each divergence
+mechanically (`macron-only` / `spacing-case` / `substantive`); the semantic
+call within `substantive` -- our defect versus the human's choice -- needs
+domain judgement, which is why the report shows source, ours, and theirs side by
+side, ranked by frequency.
 
 ## Build Pipeline
 

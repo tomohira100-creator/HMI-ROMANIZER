@@ -9,7 +9,62 @@ a versioned library. Each entry records the commit that introduced the change.
 
 ## [Unreleased]
 
+### Added
+
+- **Phase 3: the XLSX handler.** `python/romanizer/handlers/xlsx_handler.py`
+  romanizes a workbook on raw `zipfile` + `lxml`, reusing the `ooxml_parts`
+  package class. Shared strings are romanized in place (indices preserved, table
+  never deduped or reordered), so no worksheet moves on account of them. Sheet
+  names are romanized and every reference rewritten -- cross-sheet formula refs
+  and print-area defined names, quoted correctly for names that gain a space
+  (`Mitsumori Jōken`). Formula string literals, cached `t="str"` values, and
+  header/footer text are romanized. `<rPh>` phonetic ruby and `<phoneticPr>` are
+  stripped. Untouched byte-identical: images, drawings, printer settings,
+  styles, theme, calcChain -- everything the human reference also kept.
+  `openpyxl` was rejected: it drops those parts on a round-trip.
+- `python/romanizer/corpus_diff.py` and `python -m romanizer diff-xlsx`: compare
+  our output against a `samples/expected/` reference, aligning by shared-string
+  index and classifying each divergence (`macron-only`, `spacing-case`,
+  `substantive`) so the reference is treated as a reference, not an oracle. The
+  semantic call within `substantive` -- our defect versus the human's shortcut
+  -- is left to human judgement, with source/ours/theirs shown side by side,
+  ranked by frequency.
+- `samples/12_spreadsheet.xlsx`: a synthesized fixture covering shared strings,
+  a trailing-space Japanese sheet name referenced quoted, quoted and unquoted
+  cross-sheet refs, a formula literal, a `t="str"` cached value, an `<rPh>`
+  ruby string, a merged cell, a Japanese header, and an untouched image.
+- The CLI `convert` dispatch is now handler-agnostic: handlers expose
+  `handler_error` and `refusal_error`, so a new format needs no `cli.py` change.
+
 ### Fixed
+
+- `<rPh>` phonetic ruby in shared strings was romanized as if it were display
+  text, doubling every reading (`式` with ruby `シキ` became `Shiki Shiki`).
+  Surfaced by the `diff-xlsx` harness on its first run against the real Maison
+  d'Aura pair -- 182 of 291 strings carry ruby -- and fixed by stripping it, as
+  the human reference does. Raised identical matches from 7 to 45.
+
+### Deferred
+
+- Compound words spaced with U+3000 for column alignment (`数　量`, `金　　額`)
+  tokenize per-kanji and misread (`Kazu Ryō`, not `Sūryō`) -- decision D2, the
+  dominant `substantive` divergence in the Maison d'Aura diff. Recorded in
+  `ARCHITECTURE.md` with the fix the human's output points to: romanize from the
+  `<rPh>` ruby reading, which is offline and author-grounded. A design change,
+  not a spot fix; not acted on.
+
+### Refactored
+
+- Renamed `docx_parts.py` to `ooxml_parts.py`; it is format-agnostic OOXML zip
+  handling that the XLSX handler reuses.
+
+### Documentation
+
+- `ARCHITECTURE.md`: XLSX handler and `corpus_diff` module responsibilities; the
+  U+3000 open item with the ruby-reading fix; and the reference-not-oracle
+  principle for the validation corpus.
+
+### Fixed (honorifics, open item #1 closed)
 
 - Honorific and title suffixes now detach from a name (open item #1, closed).
   `比良さん` was `Hirasan`; it is now `Hira San`, space-separated and each word
