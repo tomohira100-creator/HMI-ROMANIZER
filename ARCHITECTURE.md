@@ -199,12 +199,45 @@ Excel would render it over the romaji. `openpyxl` is not used -- it drops
 drawings, printer settings and headers on a round-trip and rewrites every
 shared string inline; the human reference keeps all of those.
 
+### `python/romanizer/run_reassembly.py`
+The shared run-reassembly used by the DOCX and PPTX handlers. Word and
+PowerPoint both split a word across runs (`w:r`/`w:t`, `a:r`/`a:t`) for reasons
+unrelated to formatting; the segmentation and first-run-wins attribution are
+identical and only the element names differ, so a `RunModel` (paragraph tag,
+text tag, boundary tags, `xml:space` attr) parameterizes the one implementation.
+A boundary element (`w:instrText`, `a:br`, `a:fld`) both splits a segment and is
+never descended into, which shields a PPTX field's cached `a:t` value from
+romanization. The a:t/w:t sibling guard -- never prune an emptied run, or a
+bookmark, line break, or field goes with it -- lives here, at the single shared
+point of temptation.
+
+### `python/romanizer/handlers/pptx_handler.py`
+Romanizes `<a:t>` display text in `ppt/slides/slideN.xml` (titles, bodies,
+tables, grouped shapes -- one recursive walk reaches all) and
+`ppt/notesSlides/notesSlideN.xml` (the speaker's script), reusing
+`run_reassembly` and `ooxml_parts.Package`. Text is inline per slide -- no
+shared-string indirection -- so every non-slide part stays byte-identical.
+
+Never touched: `@typeface` (font names are Japanese but romanizing them breaks
+rendering), `@descr` (image alt-text, decision D1), `a:fld` cached values
+(regenerated), and -- structurally -- slide masters and layouts. Master/layout
+`a:t` is prompt boilerplate (`クリックして...`); it is excluded by part, not by
+matching the visible string, so the exclusion survives any re-worded template
+(decision D2).
+
+Charts (`c:` parts), SmartArt (`dgm:` parts), embedded OLE objects, and comments
+are deferred (decision D4), but **loudly**: `convert` returns a `Conversion`
+carrying every unconverted part that still holds Japanese, so a deck with
+Japanese chart labels cannot pass for fully converted. The conversion is
+reported, not failed. `python-pptx` was rejected the same way as `openpyxl` and
+`python-docx`: a round-trip re-serializes 27 of 33 parts.
+
 ### `python/romanizer/corpus_diff.py`
-Compares our romanization of an `.xlsx` against a human reference in
-`samples/expected/`, aligning by shared-string index. Each divergence is
+Compares our romanization against a human reference in `samples/expected/`. For
+`.xlsx` it aligns by shared-string index (`diff-xlsx`); for `.pptx` it aligns by
+slide and reassembly-segment order (`compare_pptx`). Each divergence is
 classified -- `macron-only`, `spacing-case`, `substantive` -- so the reference
 is treated as a reference, not an oracle (see the Validation Corpus section).
-Exposed as `python -m romanizer diff-xlsx`.
 
 ### `python/romanizer/handlers/*.py`
 Format-specific file handlers. Each one:
@@ -360,6 +393,45 @@ the tool serves.
 **Constructs absent from the entire corpus**, and therefore untested by it:
 tables, `gridSpan`, `vMerge`, content controls, fields, hyperlinks, comments,
 headers, footers, embedded OLE objects.
+
+## PPTX Findings from the Real Corpus
+
+Measured on two decks (both romanized outputs, not Japanese originals -- see the
+note below).
+
+**Text location and the `@typeface` trap.** Display text is in `<a:t>` only,
+inline per slide. A naive "romanize all Japanese in the XML" would be
+catastrophic: on the busiest slide, of 383 Japanese characters, 6 were display
+text and 344 were **font names in `@typeface` attributes** (游ゴシック, メイリオ).
+Romanizing a font name breaks rendering. The a:t walk never reads attributes, so
+font names, `@descr` alt-text, and metadata are untouched by construction.
+
+**Fragmentation is common, mid-word splitting rare.** 31.8% of paragraphs are
+multi-run (versus DOCX's near-zero), so the reassembly path is the main event --
+but genuine mid-word splits were 2 in 312 paragraphs, one of them a
+partial-romanization artifact. Multi-run is mostly formatting spans at word
+boundaries. Caveat: measured on romanized text; the original's fragmentation
+could differ.
+
+**Most residual Japanese is not slide text.** In the partially-romanized deck,
+charts (`c:v` cached values) and embedded Excel objects held far more Japanese
+than slide `a:t`. These are deferred and reported by the loud notice, not
+silently left.
+
+**U+3000 in titles is unmeasured, pending an original.** PPTX makes decision D2
+(the U+3000 compound-spacing misread) land in slide titles, the most visible
+text on a slide -- `神戸　マリオット` with a mid-title gap would go straight into a
+board deck. The count of intra-word `JP　JP` cases in titles cannot be measured
+on a romanized output (romanization already split them); the measurement is
+written and runs in one command against a Japanese original. This is why D3 in
+the session plan pulled U+3000 forward to its own engine phase (4.5) before PPTX
+is considered shippable.
+
+**No Japanese-original decks exist in the corpus.** The two `.pptx` files are
+both in `samples/expected/` and are romanized outputs; their originals are
+absent. Structural design was validated against them (round-trip, part
+preservation, the loud notice), but the vocabulary-level accuracy measurement
+and the `compare_pptx` diff need original+reference pairs that do not yet exist.
 
 ## Validation Corpus
 

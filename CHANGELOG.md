@@ -11,6 +11,45 @@ a versioned library. Each entry records the commit that introduced the change.
 
 ### Added
 
+- **Phase 4: the PPTX handler.** `python/romanizer/handlers/pptx_handler.py`
+  romanizes `<a:t>` display text in slides (titles, bodies, tables, grouped
+  shapes) and speaker notes, on raw `zipfile` + `lxml`, reusing `ooxml_parts`
+  and the shared `run_reassembly`. Text is inline per slide, so every non-slide
+  part stays byte-identical. Font names (`@typeface`), alt-text (`@descr`),
+  field cached values (`a:fld`), and -- structurally, by part -- slide masters
+  and layouts are never touched.
+- **Loud deferral notice (decision D4).** Charts (`c:`), SmartArt (`dgm:`),
+  embedded OLE objects, and comments are deferred, but `convert` returns a
+  `Conversion` listing every unconverted part that still holds Japanese, and the
+  CLI prints it. A deck with Japanese chart labels cannot pass for fully
+  converted. On the real 95 MB deck this reports 3 charts and 4 embedded Excel
+  objects.
+- `run_reassembly.py`: the shared run-reassembly, extracted from the DOCX
+  handler and parameterized by a `RunModel`, now used by both handlers. A
+  boundary element is never descended into, shielding a PPTX `a:fld` cached
+  value from romanization.
+- `python -m romanizer convert` dispatches `.pptx`; `corpus_diff.compare_pptx`
+  aligns a deck against a reference by slide and reassembly-segment order.
+- `samples/13_slides.pptx`: a synthesized, PowerPoint-valid deck exercising a
+  mid-word split title (reassembly), an `a:br` and `a:fld` (sibling guard), a
+  table cell, a grouped shape, a Japanese `@typeface`, romanized notes, a chart
+  (the loud notice), and an untouched image.
+
+### Refactored
+
+- Extracted run reassembly from `docx_handler` into `run_reassembly.py` as its
+  own commit, suite green, so the extraction did not tangle with new PPTX logic.
+
+### Documentation (Phase 4)
+
+- `ARCHITECTURE.md`: `pptx_handler`, `run_reassembly`, and `compare_pptx` module
+  responsibilities; a PPTX-findings section (the `@typeface` trap, 31.8%
+  multi-run fragmentation, charts holding most residual Japanese, U+3000 in
+  titles unmeasured pending an original, and the absence of Japanese-original
+  decks in the corpus).
+
+### Added (earlier this cycle)
+
 - **Phase 3: the XLSX handler.** `python/romanizer/handlers/xlsx_handler.py`
   romanizes a workbook on raw `zipfile` + `lxml`, reusing the `ooxml_parts`
   package class. Shared strings are romanized in place (indices preserved, table
