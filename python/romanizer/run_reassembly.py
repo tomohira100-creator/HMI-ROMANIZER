@@ -95,7 +95,12 @@ def assign_spans(leaves, spans):
 
 
 def romanize_paragraph(paragraph, dic, model, romanize_spans, japanese_re):
-    """Romanize one paragraph's text in place, reassembling split words."""
+    """Romanize one paragraph's text in place, reassembling split words.
+
+    Returns True if any leaf was modified, so a caller can leave a part that
+    changed nothing byte-identical rather than re-serializing it.
+    """
+    changed = False
     for leaves in segments(paragraph, model):
         full = "".join(leaf.text or "" for leaf in leaves)
         if not full or not japanese_re.search(full):
@@ -104,6 +109,7 @@ def romanize_paragraph(paragraph, dic, model, romanize_spans, japanese_re):
             continue
 
         outputs = assign_spans(leaves, romanize_spans(full, dic))
+        changed = True
 
         for leaf, text in zip(leaves, outputs):
             leaf.text = text
@@ -123,3 +129,4 @@ def romanize_paragraph(paragraph, dic, model, romanize_spans, japanese_re):
             # valid OOXML and costs nothing.
             if model.space_attr is not None and text != text.strip():
                 leaf.set(model.space_attr, "preserve")
+    return changed

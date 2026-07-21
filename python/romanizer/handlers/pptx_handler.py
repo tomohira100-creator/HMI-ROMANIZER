@@ -99,9 +99,20 @@ class Conversion:
 
 
 def _romanize_part(blob, dic):
+    """Romanize a slide or notes part, or return None if nothing changed.
+
+    A part with no Japanese display text is left byte-identical rather than
+    re-serialized: lxml re-serialization alone shifts a few bytes (attribute
+    quoting, self-closing tags) even when no text changed, and a notes part
+    that only holds a slide-number field must not drift.
+    """
     root = etree.fromstring(blob)
+    changed = False
     for paragraph in root.iter(A + "p"):
-        romanize_paragraph(paragraph, dic, _RUN_MODEL, romanize_spans, _JAPANESE)
+        if romanize_paragraph(paragraph, dic, _RUN_MODEL, romanize_spans, _JAPANESE):
+            changed = True
+    if not changed:
+        return None
     return etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
 
 
@@ -181,7 +192,9 @@ def convert(source, destination, dic=None):
 
     for name in package.names:
         if _SLIDE.match(name) or _NOTES.match(name):
-            package.replace(name, _romanize_part(package.read_part(name), dic))
+            romanized = _romanize_part(package.read_part(name), dic)
+            if romanized is not None:
+                package.replace(name, romanized)
 
     unconverted = _scan_unconverted(package)
 

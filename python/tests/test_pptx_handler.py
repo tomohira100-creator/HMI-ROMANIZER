@@ -83,11 +83,43 @@ def test_theme_master_layout_chart_image_untouched(converted):
             assert before[name] == after[name], name
 
 
-def test_slide_structure_isomorphic(converted):
+@pytest.mark.parametrize(
+    "part", ["ppt/slides/slide1.xml", "ppt/notesSlides/notesSlide1.xml"]
+)
+def test_edited_part_structure_isomorphic(converted, part):
+    """Slides AND notes are held to structural isomorphism: only text and
+    xml:space may differ, never the element sequence or attributes."""
     out, _ = converted
-    assert skeleton(parts(FIXTURE)["ppt/slides/slide1.xml"]) == skeleton(
-        parts(out)["ppt/slides/slide1.xml"]
-    )
+    assert skeleton(parts(FIXTURE)[part]) == skeleton(parts(out)[part])
+
+
+def test_notes_line_break_and_empty_run_survive(converted):
+    """The empty a:t before an a:br in the notes must not be tidied away, or
+    the line break -- a line of the presenter's script -- goes with it."""
+    out, _ = converted
+    notes = etree.fromstring(parts(out)["ppt/notesSlides/notesSlide1.xml"])
+    assert notes.find(".//" + A + "br") is not None, "a:br dropped from notes"
+    # The second paragraph keeps its two a:t leaves (one emptied, one text)...
+    second = notes.findall(".//" + A + "p")[1]
+    ats = second.findall(".//" + A + "t")
+    assert len(ats) == 2, "an a:t was pruned from the notes paragraph"
+    assert [t.text for t in ats] == [None, "Tōkyō"]
+
+
+def test_notes_without_japanese_are_byte_identical(tmp_path):
+    """A notes part with no Japanese must not be re-serialized at all."""
+    deck = SAMPLES / "expected" / "modi_hatsugen_romaji.pptx"
+    if not deck.exists():
+        pytest.skip("real deck not present")
+    out = tmp_path / "out.pptx"
+    P.convert(deck, out)
+    before, after = parts(deck), parts(out)
+    import re
+
+    for name in before:
+        if re.match(r"ppt/notesSlides/notesSlide\d+\.xml$", name):
+            # modi's notes are already romanized (no Japanese) -> untouched.
+            assert before[name] == after[name], "notes re-serialized: {}".format(name)
 
 
 def test_slide_text_romanized(converted):
@@ -185,7 +217,7 @@ def test_typeface_font_names_untouched(converted):
 def test_notes_are_romanized(converted):
     out, _ = converted
     assert slide_texts(parts(out)["ppt/notesSlides/notesSlide1.xml"]) == [
-        "Watakushi wa Gakusei desu"
+        "Watakushi wa Gakusei desu", None, "Tōkyō"
     ]
 
 

@@ -714,11 +714,19 @@ def build_13():
         "</p:spTree></p:cSld><p:clrMapOvr><a:overrideClrMapping/></p:clrMapOvr></p:sld>"
     ).format(p=PML, a=DML, r=RML).replace("{F}", "10")
 
+    # The notes body has two paragraphs. The second one carries an EMPTY a:t
+    # immediately before an a:br, then Japanese after the break -- the exact
+    # sibling-loss shape: an empty run tidied away would take the line break
+    # with it, silently dropping a line from the presenter's script.
     notes = DECL + (
         "<p:notes {p} {a} {r}><p:cSld><p:spTree>"
         "<p:nvGrpSpPr><p:cNvPr id=\"1\" name=\"\"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/>"
         '<p:sp><p:nvSpPr><p:cNvPr id="2" name="Notes"/><p:cNvSpPr/><p:nvPr><p:ph type="body" idx="1"/></p:nvPr></p:nvSpPr>'
-        '<p:spPr/><p:txBody><a:bodyPr/><a:p><a:r><a:rPr lang="ja-JP"/><a:t>私は学生です</a:t></a:r></a:p></p:txBody></p:sp>'
+        '<p:spPr/><p:txBody><a:bodyPr/>'
+        '<a:p><a:r><a:rPr lang="ja-JP"/><a:t>私は学生です</a:t></a:r></a:p>'
+        '<a:p><a:r><a:rPr lang="ja-JP"/><a:t></a:t></a:r><a:br/>'
+        '<a:r><a:rPr lang="ja-JP"/><a:t>東京</a:t></a:r></a:p>'
+        '</p:txBody></p:sp>'
         "</p:spTree></p:cSld></p:notes>"
     ).format(p=PML, a=DML, r=RML)
 
