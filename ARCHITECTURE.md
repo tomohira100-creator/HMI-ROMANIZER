@@ -317,13 +317,19 @@ separately and reads it in isolation, so `数量` (Sūryō) becomes `Kazu Ryō` 
 `金額` (Kingaku) becomes `Kane Gaku`. This is the single largest source of
 `substantive` divergences from the human reference in the Maison d'Aura
 workbook. Do not collapse U+3000 on a guess: some genuinely separate words, and
-merging those would be a new class of error. The Maison d'Aura pair shows the
-right fix, which is also the offline, author-grounded reading source the
-no-network constraint wants: XLSX cells carry the correct reading in their
-`<rPh>` phonetic ruby (`数量`'s ruby is `スウリョウ`), so romanizing from the
-ruby when present sidesteps the tokenization entirely. Weigh this when D2 is
-taken up; it is a design change, not a spot fix, and it applies only to formats
-that carry ruby.
+merging those would be a new class of error.
+
+Using the `<rPh>` furigana as the reading source was considered and **measured
+against the real workbook, then rejected**: romanizing the ruby matches the
+human only 9% of the time, versus 29% for collapsing U+3000 and running MeCab
+on the main text. The katakana ruby is a lossy form -- it writes long vowels as
+explicit ウ/オ, so it destroys macrons (`スウリョウ` romanizes to `Suuryou`, not
+`Sūryō`) -- two-thirds of ruby spans are multi-part rather than a whole-cell
+reading, and some readings are simply wrong. So ruby is kept stripped, not read
+(see `xlsx_handler`). The one surviving idea for D2: a whole-cell **single**
+`<rPh>` span whose offsets straddle a U+3000 gap proves that gap is intra-word,
+which would license collapse-then-MeCab safely -- using the ruby's structure,
+not its lossy phonetic content. Weigh that if D2 is taken up.
 
 ## DOCX Findings from the Real Corpus
 
