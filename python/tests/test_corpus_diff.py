@@ -104,6 +104,19 @@ def test_length_mismatch_raises(tmp_path):
         C.compare_xlsx(FIXTURE, longer)
 
 
+def test_compare_pptx_against_our_own_output_is_identical(tmp_path):
+    """A hand-romanized deck can run through the harness; against our own
+    output there is no divergence."""
+    from romanizer.handlers import pptx_handler
+
+    out = tmp_path / "out.pptx"
+    pptx_handler.convert(SAMPLES / "13_slides.pptx", out)
+    divergences, summary = C.compare_pptx(SAMPLES / "13_slides.pptx", out)
+    assert divergences == []
+    assert summary["substantive"] == 0
+    assert summary["identical"] > 0
+
+
 def test_report_separates_macron_from_substantive():
     divergences = [
         C.Divergence("東京", "Tōkyō", "Tokyo", "macron-only", 5),

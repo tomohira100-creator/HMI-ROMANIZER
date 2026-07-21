@@ -34,34 +34,42 @@ class RunModel:
         self.space_attr = space_attr
 
 
-def _direct_children_in_order(paragraph, para_tag):
-    """Walk a paragraph's subtree in document order, not descending into a
-    nested paragraph.
+def _walk(paragraph, model):
+    """Walk a paragraph's subtree in document order, yielding text leaves and
+    boundary markers. Two things are never descended into:
 
-    A text box (DOCX) or a nested shape (PPTX) contains its own paragraphs;
-    those belong to the inner paragraph and are visited when the caller
-    iterates over every paragraph in the part.
+      - a nested paragraph (a text box or nested shape has its own paragraphs,
+        visited when the caller iterates every paragraph in the part);
+      - a boundary element. A PPTX a:fld (slide-number / date field) holds a
+        cached a:t value that must not be romanized, and a DOCX w:instrText
+        holds a field code. Treating the boundary as opaque both splits the
+        segment and shields its inner text.
     """
     for child in paragraph:
-        if child.tag == para_tag:
+        if child.tag == model.para_tag:
             continue
-        yield child
-        for descendant in _direct_children_in_order(child, para_tag):
-            yield descendant
+        if child.tag in model.boundary_tags:
+            yield ("boundary", child)
+            continue
+        if child.tag == model.text_tag:
+            yield ("leaf", child)
+            continue
+        for item in _walk(child, model):
+            yield item
 
 
 def segments(paragraph, model):
     """Split a paragraph's text leaves into runs of text romanizable as one
-    string. Boundaries fall at line breaks, tabs and fields."""
+    string. Boundaries fall at line breaks, tabs and fields, and are not
+    descended into."""
     result = []
     current = []
-    for element in _direct_children_in_order(paragraph, model.para_tag):
-        if element.tag in model.boundary_tags:
+    for kind, element in _walk(paragraph, model):
+        if kind == "boundary":
             if current:
                 result.append(current)
                 current = []
-            continue
-        if element.tag == model.text_tag:
+        elif kind == "leaf":
             current.append(element)
     if current:
         result.append(current)

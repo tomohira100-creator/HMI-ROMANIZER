@@ -616,13 +616,201 @@ def build_12():
     write_docx(SAMPLES / "12_spreadsheet.xlsx", parts)
 
 
+# --- 13_slides.pptx --------------------------------------------------------
+#
+# A minimal but PowerPoint-valid deck exercising every path the handler
+# touches: a slide with a mid-word split title (reassembly), a body with an
+# a:br and an a:fld (sibling guard), a table cell, a grouped shape, a Japanese
+# @typeface (must stay untouched), a notes slide (romanized), a chart part with
+# Japanese (the loud deferral notice), and an untouched image.
+#
+# Japanese content is drawn from the Phase 1 corpus.
+
+PML = 'xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"'
+DML = 'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"'
+RML = 'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"'
+CML = 'xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart"'
+PPT_REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+
+
+def _pptx_content_types():
+    ov = [
+        ("/ppt/presentation.xml", "presentationml.presentation.main+xml"),
+        ("/ppt/slides/slide1.xml", "presentationml.slide+xml"),
+        ("/ppt/slideLayouts/slideLayout1.xml", "presentationml.slideLayout+xml"),
+        ("/ppt/slideMasters/slideMaster1.xml", "presentationml.slideMaster+xml"),
+        ("/ppt/notesSlides/notesSlide1.xml", "presentationml.notesSlide+xml"),
+        ("/ppt/charts/chart1.xml", "drawingml.chart+xml"),
+        ("/ppt/theme/theme1.xml", "drawingml.theme+xml"),
+    ]
+    body = "".join(
+        [
+            '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>',
+            '<Default Extension="xml" ContentType="application/xml"/>',
+            '<Default Extension="png" ContentType="image/png"/>',
+        ]
+        + [
+            '<Override PartName="{}" ContentType="application/vnd.openxmlformats-officedocument.{}"/>'.format(p, c)
+            for p, c in ov
+        ]
+    )
+    return DECL + "<Types {}>{}</Types>".format(CT_NS, body)
+
+
+def _minimal_theme():
+    # A theme with the colour/font/format scheme names PowerPoint requires.
+    return DECL + (
+        '<a:theme {dml} name="T"><a:themeElements>'
+        '<a:clrScheme name="C">'
+        + "".join(
+            '<a:{0}><a:srgbClr val="000000"/></a:{0}>'.format(t)
+            for t in ("dk1", "lt1", "dk2", "lt2", "accent1", "accent2", "accent3",
+                      "accent4", "accent5", "accent6", "hlink", "folHlink")
+        )
+        + "</a:clrScheme>"
+        '<a:fontScheme name="F"><a:majorFont><a:latin typeface="Calibri"/><a:ea typeface=""/><a:cs typeface=""/></a:majorFont>'
+        '<a:minorFont><a:latin typeface="Calibri"/><a:ea typeface=""/><a:cs typeface=""/></a:minorFont></a:fontScheme>'
+        '<a:fmtScheme name="M"><a:fillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill>'
+        '<a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:fillStyleLst>'
+        '<a:lnStyleLst><a:ln><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln></a:lnStyleLst>'
+        '<a:effectStyleLst><a:effectStyle><a:effectLst/></a:effectStyle></a:effectStyleLst>'
+        '<a:bgFillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:bgFillStyleLst></a:fmtScheme>'
+        "</a:themeElements></a:theme>"
+    ).format(dml=DML)
+
+
+def build_13():
+    # Slide: title split mid-word across two runs (reassembly); a body with an
+    # a:br between two words and an a:fld slide-number (sibling guard); a table
+    # cell; a grouped shape; a Japanese @typeface that must be preserved.
+    slide = DECL + (
+        "<p:sld {p} {a} {r}><p:cSld><p:spTree>"
+        "<p:nvGrpSpPr><p:cNvPr id=\"1\" name=\"\"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/>"
+        # Title: 株式会社 split as 株式 + 会社 across two runs.
+        '<p:sp><p:nvSpPr><p:cNvPr id="2" name="Title"/><p:cNvSpPr/>'
+        '<p:nvPr><p:ph type="title"/></p:nvPr></p:nvSpPr><p:spPr/><p:txBody>'
+        '<a:bodyPr/><a:p>'
+        '<a:r><a:rPr lang="ja-JP"><a:latin typeface="游ゴシック"/></a:rPr><a:t>株式</a:t></a:r>'
+        '<a:r><a:rPr lang="en-US"><a:latin typeface="游ゴシック"/></a:rPr><a:t>会社</a:t></a:r>'
+        "</a:p></p:txBody></p:sp>"
+        # Body: 東京 <a:br/> 大阪, and a slide-number field.
+        '<p:sp><p:nvSpPr><p:cNvPr id="3" name="Body"/><p:cNvSpPr/>'
+        '<p:nvPr><p:ph type="body" idx="1"/></p:nvPr></p:nvSpPr><p:spPr/><p:txBody><a:bodyPr/>'
+        '<a:p><a:r><a:rPr lang="ja-JP"/><a:t>東京</a:t></a:r><a:br/>'
+        '<a:r><a:rPr lang="ja-JP"/><a:t>大阪</a:t></a:r>'
+        '<a:fld id="{{F}}" type="slidenum"><a:rPr lang="ja-JP"/><a:t>1</a:t></a:fld></a:p>'
+        "</p:txBody></p:sp>"
+        # A table with a Japanese cell.
+        '<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="4" name="Table"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr>'
+        '<p:xfrm><a:off x="0" y="0"/><a:ext cx="100" cy="100"/></p:xfrm>'
+        '<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table">'
+        '<a:tbl><a:tblPr/><a:tblGrid><a:gridCol w="100"/></a:tblGrid>'
+        '<a:tr h="100"><a:tc><a:txBody><a:bodyPr/><a:p><a:r><a:rPr lang="ja-JP"/><a:t>合計</a:t></a:r></a:p></a:txBody></a:tc></a:tr>'
+        "</a:tbl></a:graphicData></a:graphic></p:graphicFrame>"
+        # A grouped shape with Japanese text.
+        '<p:grpSp><p:nvGrpSpPr><p:cNvPr id="5" name="Group"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/>'
+        '<p:sp><p:nvSpPr><p:cNvPr id="6" name="InGroup"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr/>'
+        '<p:txBody><a:bodyPr/><a:p><a:r><a:rPr lang="ja-JP"/><a:t>大阪</a:t></a:r></a:p></p:txBody></p:sp></p:grpSp>'
+        "</p:spTree></p:cSld><p:clrMapOvr><a:overrideClrMapping/></p:clrMapOvr></p:sld>"
+    ).format(p=PML, a=DML, r=RML).replace("{F}", "10")
+
+    notes = DECL + (
+        "<p:notes {p} {a} {r}><p:cSld><p:spTree>"
+        "<p:nvGrpSpPr><p:cNvPr id=\"1\" name=\"\"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/>"
+        '<p:sp><p:nvSpPr><p:cNvPr id="2" name="Notes"/><p:cNvSpPr/><p:nvPr><p:ph type="body" idx="1"/></p:nvPr></p:nvSpPr>'
+        '<p:spPr/><p:txBody><a:bodyPr/><a:p><a:r><a:rPr lang="ja-JP"/><a:t>私は学生です</a:t></a:r></a:p></p:txBody></p:sp>'
+        "</p:spTree></p:cSld></p:notes>"
+    ).format(p=PML, a=DML, r=RML)
+
+    # A chart with a Japanese cached value -> triggers the loud deferral notice.
+    chart = DECL + (
+        "<c:chartSpace {c} {a} {r}><c:chart><c:plotArea><c:layout/>"
+        '<c:barChart><c:barDir val="col"/><c:ser><c:tx><c:strRef><c:f>Sheet1!$A$1</c:f>'
+        '<c:strCache><c:ptCount val="1"/><c:pt idx="0"><c:v>売上</c:v></c:pt></c:strCache></c:strRef></c:tx></c:ser>'
+        "</c:barChart></c:plotArea></c:chart></c:chartSpace>"
+    ).format(c=CML, a=DML, r=RML)
+
+    presentation = DECL + (
+        "<p:presentation {p} {r}>"
+        '<p:sldMasterIdLst><p:sldMasterId id="2147483648" r:id="rIdSm"/></p:sldMasterIdLst>'
+        '<p:sldIdLst><p:sldId id="256" r:id="rIdSlide"/></p:sldIdLst>'
+        '<p:sldSz cx="9144000" cy="6858000"/><p:notesSz cx="6858000" cy="9144000"/>'
+        "</p:presentation>"
+    ).format(p=PML, r=RML)
+
+    def rels(items):
+        return DECL + "<Relationships {}>{}</Relationships>".format(
+            RELS_NS,
+            "".join(
+                '<Relationship Id="{}" Type="{}/{}" Target="{}"/>'.format(i, PPT_REL, t, tg)
+                for i, t, tg in items
+            ),
+        )
+
+    # Minimal but valid master and layout (required chain: slide->layout->master->theme).
+    def ph_tree(name):
+        return (
+            "<p:cSld><p:spTree><p:nvGrpSpPr><p:cNvPr id=\"1\" name=\"\"/><p:cNvGrpSpPr/><p:nvPr/>"
+            "</p:nvGrpSpPr><p:grpSpPr/></p:spTree></p:cSld>"
+        )
+
+    master = DECL + (
+        "<p:sldMaster {p} {a} {r}>{tree}"
+        "<p:clrMap bg1=\"lt1\" tx1=\"dk1\" bg2=\"lt2\" tx2=\"dk2\" accent1=\"accent1\" accent2=\"accent2\" "
+        "accent3=\"accent3\" accent4=\"accent4\" accent5=\"accent5\" accent6=\"accent6\" hlink=\"hlink\" folHlink=\"folHlink\"/>"
+        '<p:sldLayoutIdLst><p:sldLayoutId id="2147483649" r:id="rIdLayout"/></p:sldLayoutIdLst>'
+        "</p:sldMaster>"
+    ).format(p=PML, a=DML, r=RML, tree=ph_tree("master"))
+
+    layout = DECL + (
+        '<p:sldLayout {p} {a} {r} type="blank">{tree}</p:sldLayout>'
+    ).format(p=PML, a=DML, r=RML, tree=ph_tree("layout"))
+
+    parts = {
+        "[Content_Types].xml": _pptx_content_types(),
+        "_rels/.rels": rels([("rId1", "officeDocument", "ppt/presentation.xml")]),
+        "ppt/presentation.xml": presentation,
+        "ppt/_rels/presentation.xml.rels": rels([
+            ("rIdSm", "slideMaster", "slideMasters/slideMaster1.xml"),
+            ("rIdSlide", "slide", "slides/slide1.xml"),
+            ("rIdTheme", "theme", "theme/theme1.xml"),
+        ]),
+        "ppt/slides/slide1.xml": slide,
+        "ppt/slides/_rels/slide1.xml.rels": rels([
+            ("rIdL", "slideLayout", "../slideLayouts/slideLayout1.xml"),
+            ("rIdN", "notesSlide", "../notesSlides/notesSlide1.xml"),
+            ("rIdC", "chart", "../charts/chart1.xml"),
+        ]),
+        "ppt/notesSlides/notesSlide1.xml": notes,
+        "ppt/notesSlides/_rels/notesSlide1.xml.rels": rels([
+            ("rIdS", "slide", "../slides/slide1.xml"),
+        ]),
+        "ppt/charts/chart1.xml": chart,
+        "ppt/slideLayouts/slideLayout1.xml": layout,
+        "ppt/slideLayouts/_rels/slideLayout1.xml.rels": rels([
+            ("rIdM", "slideMaster", "../slideMasters/slideMaster1.xml"),
+        ]),
+        "ppt/slideMasters/slideMaster1.xml": master,
+        "ppt/slideMasters/_rels/slideMaster1.xml.rels": rels([
+            ("rIdL", "slideLayout", "../slideLayouts/slideLayout1.xml"),
+            ("rIdT", "theme", "../theme/theme1.xml"),
+        ]),
+        "ppt/theme/theme1.xml": _minimal_theme(),
+        # An untouched binary part: the byte-identity anchor.
+        "ppt/media/image1.png": tiny_png(),
+    }
+    write_docx(SAMPLES / "13_slides.pptx", parts)
+
+
 def main():
     build_05()
     build_10()
     build_11()
     build_12()
+    build_13()
     for name in (
-        "05_lists.docx", "10_composite.docx", "11_fragmented.docx", "12_spreadsheet.xlsx",
+        "05_lists.docx", "10_composite.docx", "11_fragmented.docx",
+        "12_spreadsheet.xlsx", "13_slides.pptx",
     ):
         print("wrote samples/{}".format(name))
 

@@ -35,6 +35,7 @@ samples/*
 !samples/10_composite.docx
 !samples/11_fragmented.docx
 !samples/12_spreadsheet.xlsx
+!samples/13_slides.pptx
 
 # Logs and temp
 *.log

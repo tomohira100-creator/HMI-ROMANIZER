@@ -117,6 +117,7 @@ EXIT_REFUSED = 2
 _HANDLERS = {
     ".docx": "romanizer.handlers.docx_handler",
     ".xlsx": "romanizer.handlers.xlsx_handler",
+    ".pptx": "romanizer.handlers.pptx_handler",
 }
 
 
@@ -147,7 +148,7 @@ def _run_convert(args):
     handler_error = getattr(handler, "handler_error", Exception)
     try:
         dic = _dictionary.load(args.dict_dir) if args.dict_dir else _dictionary.default()
-        handler.convert(source, Path(args.output), dic)
+        result = handler.convert(source, Path(args.output), dic)
     except _dictionary.DictionaryError as exc:
         print("error: {}".format(exc), file=sys.stderr)
         return EXIT_ERROR
@@ -161,6 +162,23 @@ def _run_convert(args):
         raise
 
     print("wrote {}".format(args.output))
+
+    # A handler may report parts it did not convert (PPTX chart/SmartArt text).
+    # This is not a failure, but the user must see it: a deck with Japanese
+    # left in a chart must not pass for fully converted.
+    unconverted = getattr(result, "unconverted", None)
+    if unconverted:
+        print(
+            "\nNOTE: {} part(s) contain Japanese text that was NOT converted "
+            "in this version:".format(len(unconverted)),
+            file=sys.stderr,
+        )
+        for name, kind, count in unconverted:
+            print("  {:<40} {} ({} Japanese characters)".format(name, kind, count), file=sys.stderr)
+        print(
+            "  Convert these manually, or check them before sharing the deck.",
+            file=sys.stderr,
+        )
     return EXIT_OK
 
 

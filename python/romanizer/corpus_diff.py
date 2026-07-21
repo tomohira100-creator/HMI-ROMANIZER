@@ -140,6 +140,67 @@ def compare_xlsx(original_path, expected_path, dic=None):
     return divergences, summary
 
 
+def _slide_segments(package):
+    """Ordered (slide, segment text) for every slide, using the handler's own
+    segmentation.
+
+    A segment is a run of a:t leaves between hard boundaries (a:br, a:fld), the
+    same unit the handler romanizes as one word. Aligning at the segment level
+    -- not per run -- is what lets a reassembled split word (株式|会社 ->
+    "Kabushiki Gaisha" in one run) compare correctly against the source.
+    Excludes @typeface/@descr (attributes) and a:fld cached values.
+    """
+    import re as _re
+
+    from .run_reassembly import RunModel, segments
+
+    a = "{http://schemas.openxmlformats.org/drawingml/2006/main}"
+    model = RunModel(a + "p", a + "t", (a + "br", a + "fld"))
+    out = []
+    for name in sorted(package.names):
+        if not _re.match(r"^ppt/slides/slide\d+\.xml$", name):
+            continue
+        root = etree.fromstring(package.read_part(name))
+        for paragraph in root.iter(a + "p"):
+            for segment in segments(paragraph, model):
+                out.append((name, "".join(leaf.text or "" for leaf in segment)))
+    return out
+
+
+def compare_pptx(original_path, expected_path, dic=None):
+    """Diff our romanization of a deck's slide text against a human reference.
+
+    Alignment is by (slide, segment order). Requires that the human kept the
+    paragraph and boundary structure -- true when the reference was produced by
+    romanizing in place, the same assumption the XLSX path makes.
+    """
+    from .ooxml_parts import Package
+
+    dic = dic or _dictionary.default()
+    src = _slide_segments(Package.read(original_path))
+    human = _slide_segments(Package.read(expected_path))
+    if len(src) != len(human):
+        raise ValueError(
+            "slide segment counts differ ({} vs {}); cannot align by "
+            "segment order".format(len(src), len(human))
+        )
+
+    japanese = re.compile("[぀-ゟ゠-ヿ㐀-䶿一-鿿々]")
+    divergences = []
+    summary = {"identical": 0, "macron-only": 0, "spacing-case": 0, "substantive": 0}
+    for (_name, source), (_hname, theirs) in zip(src, human):
+        if not japanese.search(source):
+            continue
+        ours = romanize(source, dic)
+        category = classify(ours, theirs)
+        summary[category] += 1
+        if category != "identical":
+            divergences.append(Divergence(source, ours, theirs, category, 1))
+
+    divergences.sort(key=lambda d: (_ORDER[d.category], -d.usage))
+    return divergences, summary
+
+
 def format_report(divergences, summary, limit=None):
     lines = []
     total = sum(summary.values())
