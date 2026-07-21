@@ -49,6 +49,7 @@ from lxml import etree
 from .. import dictionary as _dictionary
 from ..core import romanize_spans
 from ..ooxml_parts import Package, is_xml_part
+from ..run_reassembly import RunModel, romanize_paragraph
 
 W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 XML_SPACE = "{http://www.w3.org/XML/1998/namespace}space"
@@ -126,92 +127,20 @@ def find_revision_markup(package):
     return found
 
 
-def _direct_children_in_order(paragraph):
-    """Walk a paragraph's subtree in document order, not descending into a
-    nested w:p.
-
-    A text box lives inside a run and contains its own w:p elements. Those
-    belong to that inner paragraph, not this one, and are visited when the
-    caller iterates over every w:p in the part.
-    """
-    for child in paragraph:
-        if child.tag == W + "p":
-            continue
-        yield child
-        for descendant in _direct_children_in_order(child):
-            yield descendant
-
-
-def _segments(paragraph):
-    """Split a paragraph's w:t leaves into runs of text that may be romanized
-    as one string. Boundaries fall at line breaks, tabs and field codes."""
-    segments = []
-    current = []
-    for element in _direct_children_in_order(paragraph):
-        if element.tag in BOUNDARY_TAGS:
-            if current:
-                segments.append(current)
-                current = []
-            continue
-        if element.tag == W + "t":
-            current.append(element)
-    if current:
-        segments.append(current)
-    return segments
-
-
-def _assign_spans(leaves, spans, full):
-    """Attribute each output span to the leaf owning its first source character.
-
-    This is where decision D2 lives. When a word straddles two runs, the whole
-    romanization is written to the first run and the second receives nothing.
-    The second run keeps its w:rPr and stays in the tree with empty text.
-    """
-    # char index -> leaf index
-    owner = []
-    for index, leaf in enumerate(leaves):
-        owner.extend([index] * len(leaf.text or ""))
-
-    outputs = [""] * len(leaves)
-    for start, _end, output in spans:
-        if not output:
-            continue
-        index = owner[start] if start < len(owner) else len(leaves) - 1
-        outputs[index] += output
-    return outputs
-
-
-def _romanize_paragraph(paragraph, dic):
-    for leaves in _segments(paragraph):
-        full = "".join(leaf.text or "" for leaf in leaves)
-        if not full or not _JAPANESE.search(full):
-            # Nothing to do. Leave the leaves untouched rather than rewriting
-            # identical text, so xml:space and entity forms survive unchanged.
-            continue
-
-        outputs = _assign_spans(leaves, romanize_spans(full, dic), full)
-
-        for leaf, text in zip(leaves, outputs):
-            leaf.text = text
-            # A leaf may legitimately end up empty: its word was absorbed by an
-            # earlier run. NEVER delete the run, and never delete the leaf.
-            #
-            # It is tempting to add a cleanup pass here that prunes runs whose
-            # text became empty. Do not. Runs are not the only thing between
-            # them: w:bookmarkStart and w:bookmarkEnd sit between runs, as do
-            # w:commentRangeStart, w:footnoteReference and w:br. Real HMI
-            # documents carry up to 48 bookmarks in a single file, all of them
-            # heading anchors. Pruning runs, or pruning "empty" siblings, silently
-            # destroys every bookmark, cross-reference and comment anchor in the
-            # document. An empty w:t is valid OOXML and costs nothing.
-            if text != text.strip():
-                leaf.set(XML_SPACE, "preserve")
+#: How the shared reassembler addresses DOCX paragraphs. The word-splitting
+#: algorithm lives in run_reassembly; only these tags are DOCX-specific.
+_RUN_MODEL = RunModel(
+    para_tag=W + "p",
+    text_tag=W + "t",
+    boundary_tags=BOUNDARY_TAGS,
+    space_attr=XML_SPACE,
+)
 
 
 def _romanize_part(blob, dic):
     root = etree.fromstring(blob)
     for paragraph in root.iter(W + "p"):
-        _romanize_paragraph(paragraph, dic)
+        romanize_paragraph(paragraph, dic, _RUN_MODEL, romanize_spans, _JAPANESE)
     return etree.tostring(
         root, xml_declaration=True, encoding="UTF-8", standalone=True
     )

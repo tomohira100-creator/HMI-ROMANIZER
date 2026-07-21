@@ -1,8 +1,14 @@
-"""Unit tests for the DOCX handler's pure logic: segmentation and span attribution."""
+"""Unit tests for run reassembly, exercised through the DOCX run model.
+
+The segmentation and first-run-wins attribution now live in run_reassembly and
+are shared with the PPTX handler. These tests drive that shared logic with the
+DOCX namespace tags via the handler's run model.
+"""
 
 import pytest
 from lxml import etree
 
+from romanizer import run_reassembly as RR
 from romanizer.core import romanize, romanize_spans
 from romanizer.handlers import docx_handler as H
 
@@ -16,6 +22,14 @@ def paragraph(inner):
 
 def run(text):
     return "<w:r><w:t>{}</w:t></w:r>".format(text)
+
+
+def _segments(p):
+    return RR.segments(p, H._RUN_MODEL)
+
+
+def _assign_spans(leaves, spans, _full=None):
+    return RR.assign_spans(leaves, spans)
 
 
 # --- romanize_spans contract ----------------------------------------------
@@ -55,21 +69,21 @@ def test_span_source_ranges_point_at_the_right_characters():
 
 def test_single_run_is_one_segment():
     p = paragraph(run("東京"))
-    segments = H._segments(p)
+    segments = _segments(p)
     assert len(segments) == 1
     assert [leaf.text for leaf in segments[0]] == ["東京"]
 
 
 def test_adjacent_runs_join_one_segment():
     p = paragraph(run("株式") + run("会社"))
-    segments = H._segments(p)
+    segments = _segments(p)
     assert len(segments) == 1
     assert [leaf.text for leaf in segments[0]] == ["株式", "会社"]
 
 
 def test_break_splits_segments():
     p = paragraph("<w:r><w:t>東京</w:t><w:br/><w:t>大阪</w:t></w:r>")
-    segments = H._segments(p)
+    segments = _segments(p)
     assert len(segments) == 2
     assert [leaf.text for leaf in segments[0]] == ["東京"]
     assert [leaf.text for leaf in segments[1]] == ["大阪"]
@@ -77,7 +91,7 @@ def test_break_splits_segments():
 
 def test_tab_splits_segments():
     p = paragraph("<w:r><w:t>東京</w:t><w:tab/><w:t>大阪</w:t></w:r>")
-    assert len(H._segments(p)) == 2
+    assert len(_segments(p)) == 2
 
 
 def test_field_code_splits_segments_and_is_not_a_leaf():
@@ -86,7 +100,7 @@ def test_field_code_splits_segments_and_is_not_a_leaf():
         + '<w:r><w:instrText> PAGE </w:instrText></w:r>'
         + run("大阪")
     )
-    segments = H._segments(p)
+    segments = _segments(p)
     assert len(segments) == 2
     leaves = [leaf for segment in segments for leaf in segment]
     assert all(leaf.tag == W + "t" for leaf in leaves)
@@ -96,7 +110,7 @@ def test_bookmark_does_not_split_a_segment():
     p = paragraph(
         run("株式") + '<w:bookmarkStart w:id="1" w:name="x"/>' + run("会社")
     )
-    segments = H._segments(p)
+    segments = _segments(p)
     assert len(segments) == 1
     assert [leaf.text for leaf in segments[0]] == ["株式", "会社"]
 
@@ -108,7 +122,7 @@ def test_nested_paragraph_leaves_are_not_claimed_by_the_outer_paragraph():
         "<w:txbxContent><w:p><w:r><w:t>大阪</w:t></w:r></w:p></w:txbxContent>"
         "</v:textbox></w:pict></w:r>"
     )
-    leaves = [leaf.text for segment in H._segments(p) for leaf in segment]
+    leaves = [leaf.text for segment in _segments(p) for leaf in segment]
     assert leaves == ["東京"]
 
 
@@ -120,31 +134,31 @@ def _leaves(*texts):
 
 def test_word_split_across_two_leaves_goes_to_the_first():
     leaves = _leaves("株", "式会社")
-    outputs = H._assign_spans(leaves, romanize_spans("株式会社"), "株式会社")
+    outputs = _assign_spans(leaves, romanize_spans("株式会社"), "株式会社")
     assert outputs == ["Kabushiki Gaisha", ""]
 
 
 def test_word_split_across_three_leaves_goes_to_the_first():
     leaves = _leaves("株", "式", "会社")
-    outputs = H._assign_spans(leaves, romanize_spans("株式会社"), "株式会社")
+    outputs = _assign_spans(leaves, romanize_spans("株式会社"), "株式会社")
     assert outputs == ["Kabushiki Gaisha", "", ""]
 
 
 def test_two_words_across_two_leaves_stay_put():
     leaves = _leaves("東京", "タワー")
-    outputs = H._assign_spans(leaves, romanize_spans("東京タワー"), "東京タワー")
+    outputs = _assign_spans(leaves, romanize_spans("東京タワー"), "東京タワー")
     assert outputs == ["Tōkyō", " Tawā"]
 
 
 def test_a_leaf_may_receive_several_spans():
     leaves = _leaves("東京タワー")
-    outputs = H._assign_spans(leaves, romanize_spans("東京タワー"), "東京タワー")
+    outputs = _assign_spans(leaves, romanize_spans("東京タワー"), "東京タワー")
     assert outputs == ["Tōkyō Tawā"]
 
 
 def test_empty_leaf_tolerated():
     leaves = _leaves("株式", "", "会社")
-    outputs = H._assign_spans(leaves, romanize_spans("株式会社"), "株式会社")
+    outputs = _assign_spans(leaves, romanize_spans("株式会社"), "株式会社")
     assert outputs[0] == "Kabushiki Gaisha"
     assert outputs[1] == "" and outputs[2] == ""
 
@@ -153,7 +167,7 @@ def test_leaf_with_none_text_tolerated():
     leaves = _leaves("株式", "会社")
     leaves[1].text = None
     full = "株式"
-    outputs = H._assign_spans(leaves, romanize_spans(full), full)
+    outputs = _assign_spans(leaves, romanize_spans(full), full)
     assert outputs[0] == "Kabushiki Shiki"[:0] or outputs[0]  # non-empty
     assert outputs[1] == ""
 
@@ -169,5 +183,5 @@ def test_outputs_concatenate_to_the_romanized_segment():
             pieces.append(text[previous:point])
             previous = point
         leaves = _leaves(*pieces)
-        outputs = H._assign_spans(leaves, romanize_spans(text), text)
+        outputs = _assign_spans(leaves, romanize_spans(text), text)
         assert "".join(outputs) == romanize(text)
