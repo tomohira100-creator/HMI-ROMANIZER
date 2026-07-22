@@ -9,6 +9,28 @@ a versioned library. Each entry records the commit that introduced the change.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Phase 4.5: intra-word U+3000 collapse (closes decision D2).** HMI documents
+  space kanji inside one word with the ideographic space for column alignment
+  (`数　量`, `金　　額`); MeCab read each kanji in isolation, so `数量` romanized
+  as `Kazu Ryō`, not `Sūryō`. `core.romanize` now collapses such a space before
+  tokenization -- in `core`, so all three formats inherit it. The gate is
+  dictionary-verified: a U+3000 run collapses only when the join is a word
+  UniDic recognizes, a custom-term key, or `第` + digit. Surface-feature rules
+  were measured to merge genuine separators (`お客様　各位`, `代表取締役　社長`);
+  the dictionary gate preserves them because those joins are multi-token, and a
+  foreign katakana blob is one *unknown* token that does not qualify.
+  `romanize_spans` remaps offsets so the collapse stays invisible to the
+  DOCX/PPTX run-attribution contract. Measured regression across all three
+  corpora: 8 strings changed, all improvements, zero regressions; the workbook's
+  substantive divergences vs the human fell 177 -> 165 with none added.
+- `dictionaries/custom_terms.json`: `神戸マリオット` -> `Kōbe Marriott`. UniDic
+  reads it as two tokens (`マリオット` is out-of-vocabulary), so it is not a
+  dictionary-verified compound; the custom-term key both supplies the brand
+  spelling and licenses the U+3000 collapse so the spaced form `神戸　マリオット`
+  reaches the override. `lint-dictionary` reports it `ok`.
+
 ### Added
 
 - **Phase 4: the PPTX handler.** `python/romanizer/handlers/pptx_handler.py`

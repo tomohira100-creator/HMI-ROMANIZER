@@ -613,6 +613,99 @@ def _check_text(text):
         raise TypeError("romanize() requires a string, got {}".format(type(text).__name__))
 
 
+# --- Ideographic-space collapse (Phase 4.5) --------------------------------
+#
+# HMI documents space kanji inside a single word with the ideographic space
+# U+3000 for column alignment: 数　量, 金　　額, 摘　　要. MeCab tokenizes each
+# kanji separately and reads it in isolation, so 数量 (Sūryō) becomes Kazu Ryō.
+#
+# The gate is dictionary-verified, not surface-feature: a U+3000 gap collapses
+# only when the joined neighbours are a single word UniDic RECOGNIZES. Inferring
+# from surface features (e.g. "both sides kanji") was measured to merge genuine
+# separators -- お客様　各位 into a run, 代表取締役　社長 into one title -- because
+# those joins are multi-token; the dictionary gate preserves them. A proper noun
+# UniDic does not know (神戸マリオット) is not collapsed by UniDic and routes to
+# custom_terms, which is what that dictionary exists for; a custom-term key
+# therefore also licenses the collapse so the override can then fire.
+
+_IDEOGRAPHIC_SPACE = "　"
+_U3000_RUN = re.compile(r"　+")
+_JP_RUN_BEFORE = re.compile(r"[぀-ゟ゠-ヿ㐀-䶿一-鿿々]+$")  # run ending at the gap
+_JP_RUN_AFTER = re.compile(r"[぀-ゟ゠-ヿ㐀-䶿一-鿿々]+")     # run starting at the gap
+_ORDINAL_PREFIX = "第"
+
+
+def _single_known_token(text):
+    """True if MeCab reads `text` as exactly one in-dictionary token.
+
+    In-dictionary means the lemma field is populated: an unknown run (a foreign
+    katakana blob like セカンダリールームダウンライト) is a single token too, but
+    with no lemma, and must not license a collapse.
+    """
+    if not text:
+        return False
+    node = _get_tagger().parseToNode(text)
+    count = 0
+    known = False
+    while node:
+        if node.surface:
+            count += 1
+            if count > 1:
+                return False
+            features = _parse_features(node.feature)
+            known = len(features) > 7 and features[7] != _UNKNOWN
+        node = node.next
+    return count == 1 and known
+
+
+def _collapse_ideographic_space(text, dic):
+    """Remove intra-word U+3000. Returns (cleaned, index_map).
+
+    index_map[i] is the original index of cleaned character i, so a caller can
+    map spans over the cleaned string back to the original. Returns
+    (text, None) when nothing collapses -- the common case, at zero cost.
+
+    A collapsed U+3000 is only ever removed from between two characters that end
+    up in the same word, so it is always absorbed into that word's span and the
+    span tiling over the original is preserved.
+    """
+    if _IDEOGRAPHIC_SPACE not in text:
+        return text, None
+
+    drops = set()
+    for gap in _U3000_RUN.finditer(text):
+        a, b = gap.start(), gap.end()
+        left_match = _JP_RUN_BEFORE.search(text[:a])
+        right_match = _JP_RUN_AFTER.match(text[b:])
+        left = left_match.group() if left_match else ""
+        right = right_match.group() if right_match else ""
+
+        collapse = False
+        if left and right:
+            joined = left + right
+            # Dictionary-verified: a word UniDic knows, or a custom-term key.
+            if _single_known_token(joined) or joined in dic.custom_terms:
+                collapse = True
+        # Counter/ordinal, scoped tightly to 第 + number so it cannot become a
+        # blanket word-then-number rule: 第　1 -> 第1.
+        if (
+            not collapse
+            and left.endswith(_ORDINAL_PREFIX)
+            and b < len(text)
+            and _classify(text[b]) == _DIGIT
+        ):
+            collapse = True
+
+        if collapse:
+            drops.update(range(a, b))
+
+    if not drops:
+        return text, None
+    cleaned = "".join(c for i, c in enumerate(text) if i not in drops)
+    index_map = [i for i in range(len(text)) if i not in drops]
+    return cleaned, index_map
+
+
 def romanize_spans(text, dic=None):
     """Romanize, returning [(src_start, src_end, output)] instead of a string.
 
@@ -633,13 +726,18 @@ def romanize_spans(text, dic=None):
 
     dic = dic or _dictionary.default()
 
+    # Collapse intra-word ideographic space before tokenization, so 数　量
+    # reaches MeCab as 数量. index_map carries cleaned offsets back to the
+    # original; None means nothing collapsed (the common case).
+    cleaned, index_map = _collapse_ideographic_space(text, dic)
+
     # Overrides are applied inside _romanize_japanese, against the token
     # stream. They are deliberately not applied here against raw text: a
     # raw-text substitution has no notion of token boundaries and would
     # rewrite 私立 as "Watashi Ri" given an entry for 私.
     atoms = []
     offset = 0
-    for kind, run in _runs(text):
+    for kind, run in _runs(cleaned):
         start, offset = offset, offset + len(run)
         if kind == _JP:
             atoms.extend(_romanize_japanese(run, dic, start))
@@ -663,7 +761,21 @@ def romanize_spans(text, dic=None):
         wants_space = kind in _WORDLIKE and previous_kind in _WORDLIKE and value
         spans.append((start, end, (" " if wants_space else "") + value))
         previous_kind = kind
-    return spans
+
+    if index_map is None:
+        return spans
+    # Remap cleaned offsets to the original, then force contiguity so a removed
+    # U+3000 is absorbed into the preceding span. Usually the collapse joined
+    # two characters into one word (one span) and the removed space is already
+    # interior; the counter case (第 + digit) drops a space between two atoms,
+    # and extending each span's end to the next span's start covers it. Removed
+    # positions are only whitespace, so absorbing them leftward is harmless.
+    remapped = [(index_map[s], index_map[e - 1] + 1, out) for s, e, out in spans]
+    result = []
+    for i, (s, _e, out) in enumerate(remapped):
+        end = remapped[i + 1][0] if i + 1 < len(remapped) else len(text)
+        result.append((s, end, out))
+    return result
 
 
 def romanize(text, dic=None):

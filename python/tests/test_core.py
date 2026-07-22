@@ -438,6 +438,77 @@ def test_punctuation_between_words_is_untouched():
     assert r("「東京」") == "「Tōkyō」"
 
 
+# --- Intra-word ideographic space (Phase 4.5) ------------------------------
+#
+# HMI documents space kanji inside one word with U+3000 for column alignment.
+# The gate is dictionary-verified: collapse only when the join is a word UniDic
+# recognizes, so genuine separators (お客様　各位) are never merged.
+
+@pytest.mark.parametrize(
+    "source,expected",
+    [
+        ("数　量", "Sūryō"),
+        ("単　位", "Tan'i"),
+        ("単　価", "Tanka"),
+        ("金　　額", "Kingaku"),       # two U+3000 collapse
+        ("摘　　　　　　要", "Tekiyō"),  # six U+3000 collapse
+        ("名　称", "Meishō"),
+    ],
+)
+def test_intra_word_u3000_collapses(source, expected):
+    assert r(source) == expected
+
+
+@pytest.mark.parametrize(
+    "source,expected",
+    [
+        # These are the cases the naive "both sides kanji" rule broke: the join
+        # is multi-token, so the dictionary gate must NOT collapse them.
+        ("お客様　各位", "Okyakusama　Kakui"),
+        ("支店長　殿", "Shitenchō　Tono"),
+        ("代表取締役　社長", "Daihyō Torishimari Yaku　Shachō"),
+        ("東京　大阪", "Tōkyō　Ōsaka"),          # two place names, not a compound
+        ("数　量　単　価", "Sūryō　Tanka"),        # two compounds, separator between
+    ],
+)
+def test_genuine_u3000_separator_is_preserved(source, expected):
+    """The join is not a single word, so it stays two words. Lock these hard."""
+    assert r(source) == expected
+
+
+@pytest.mark.parametrize(
+    "source,expected",
+    [("第　1号", "Dai 1 Gō"), ("第　3期", "Dai 3 Ki")],
+)
+def test_ordinal_counter_u3000_collapses(source, expected):
+    """第 + number: the space is visual. Scoped tightly to 第, not blanket."""
+    assert r(source) == expected
+
+
+@pytest.mark.parametrize(
+    "source",
+    ["申し　込み", "コーヒー　カップ", "数　量", "第　1号", "　　数　量", "数　量です"],
+)
+def test_u3000_collapse_spans_still_tile_the_original(source):
+    """romanize_spans must keep tiling [0, len(original)) after collapse."""
+    from romanizer.core import romanize_spans
+
+    spans = romanize_spans(source)
+    assert spans[0][0] == 0
+    assert spans[-1][1] == len(source)
+    for i in range(len(spans) - 1):
+        assert spans[i][1] == spans[i + 1][0]
+    assert "".join(o for _, _, o in spans) == r(source)
+
+
+def test_katakana_u3000_separator_not_merged_into_runon():
+    """A foreign katakana blob tokenizes as one UNKNOWN token; it must not
+    license a collapse, or セカンダリールーム　ダウンライト becomes a run-on."""
+    out = r("セカンダリールーム　ダウンライト")
+    assert "　" in out  # the separator survives
+    assert "Sekandarīrūmudaunraito" not in out
+
+
 def test_katakana_middle_dot_is_punctuation_not_a_word():
     """U+30FB sits inside the katakana block but takes no surrounding spaces."""
     assert r("東京・大阪") == "Tōkyō・Ōsaka"

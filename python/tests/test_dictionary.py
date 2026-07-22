@@ -37,6 +37,14 @@ def test_custom_terms_correct_mecab_kanji_date_readings():
     assert romanize("二十四日") == "Nijūyokka"
 
 
+def test_proper_noun_routes_to_custom_dictionary_spaced_or_solid():
+    """神戸マリオット is 2 tokens (マリオット is OOV), so the U+3000 gate does not
+    collapse it via UniDic; a custom-term key licenses the collapse instead, so
+    both the solid and the U+3000-spaced form reach the override."""
+    assert romanize("神戸マリオット") == "Kōbe Marriott"
+    assert romanize("神戸　マリオット") == "Kōbe Marriott"
+
+
 def test_decoration_name_overrides_the_everyday_reading():
     """旭日中綬章 is the Order of the Rising Sun, Gold Rays with Neck Ribbon.
 

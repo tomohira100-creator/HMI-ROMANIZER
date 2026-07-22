@@ -343,26 +343,33 @@ characters in ways that need review. Open, undecided, deliberately untouched.
 `Itte Iru`. Standard Hepburn practice writes the auxiliary lowercase. This is a
 Title Case question rather than a correctness one.
 
-**Compound words spaced with U+3000 are misread. (Open, deferred -- decision
-D2.)** HMI estimate sheets space kanji headers with the ideographic space for
-column alignment: `数　量`, `名　称`, `金　　額`. MeCab tokenizes each kanji
-separately and reads it in isolation, so `数量` (Sūryō) becomes `Kazu Ryō` and
-`金額` (Kingaku) becomes `Kane Gaku`. This is the single largest source of
-`substantive` divergences from the human reference in the Maison d'Aura
-workbook. Do not collapse U+3000 on a guess: some genuinely separate words, and
-merging those would be a new class of error.
+**Compound words spaced with U+3000. (Closed -- Phase 4.5.)** HMI documents
+space kanji inside one word with the ideographic space for column alignment:
+`数　量`, `名　称`, `金　　額`. `core.romanize` now collapses such a space before
+tokenization, so `数量` reads `Sūryō`, not `Kazu Ryō`. The fix lives in `core`,
+not a handler, so DOCX, XLSX and PPTX inherit it identically.
 
-Using the `<rPh>` furigana as the reading source was considered and **measured
-against the real workbook, then rejected**: romanizing the ruby matches the
-human only 9% of the time, versus 29% for collapsing U+3000 and running MeCab
-on the main text. The katakana ruby is a lossy form -- it writes long vowels as
-explicit ウ/オ, so it destroys macrons (`スウリョウ` romanizes to `Suuryou`, not
-`Sūryō`) -- two-thirds of ruby spans are multi-part rather than a whole-cell
-reading, and some readings are simply wrong. So ruby is kept stripped, not read
-(see `xlsx_handler`). The one surviving idea for D2: a whole-cell **single**
-`<rPh>` span whose offsets straddle a U+3000 gap proves that gap is intra-word,
-which would license collapse-then-MeCab safely -- using the ruby's structure,
-not its lossy phonetic content. Weigh that if D2 is taken up.
+The gate is **dictionary-verified, not surface-feature**: a U+3000 run collapses
+only when the joined neighbours are a single word UniDic recognizes (an
+in-dictionary token), or a custom-term key, or the ordinal construction `第` +
+digit. Inferring from surface features was measured to fail -- a "both sides
+kanji" rule merges `お客様　各位` into a run and `代表取締役　社長` into one title,
+because those joins are multi-token. The dictionary gate preserves them: only a
+recognized single word licenses the collapse. A foreign katakana blob
+(`セカンダリールームダウンライト`) is one *unknown* token and does not qualify, so
+`セカンダリールーム　ダウンライト` stays two words. A proper noun UniDic does not
+know (`神戸マリオット`) routes to `custom_terms`, which is why a custom-term key
+also licenses the collapse -- so the override fires on the spaced form too.
+
+`romanize_spans` remaps offsets so the collapsed space is absorbed into the word
+that swallowed it and the spans still tile the original, keeping the DOCX/PPTX
+run-attribution contract intact.
+
+Regression, measured before merge: across the three corpora, 8 unique U+3000
+strings changed, every one an improvement, zero regressions; against the human
+reference the workbook's `substantive` divergences fell from 177 to 165 with no
+new ones. The rejected `<rPh>`-as-reading idea (9% vs the collapse's result)
+stays rejected; the collapse does not need it.
 
 ## DOCX Findings from the Real Corpus
 

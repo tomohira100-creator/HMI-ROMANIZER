@@ -165,15 +165,18 @@ def test_word_split_midword_across_langs_reassembles_to_first_run():
 
 
 def test_two_words_at_run_boundary_each_stay_in_their_run():
+    # 東京タワー is two tokens (東京 + タワー), not a custom term, so each word
+    # stays in its own run. (神戸マリオット is now a single custom-dictionary
+    # entry and would reassemble into one run -- covered in test_dictionary.)
     inner = (
         "<p:sp><p:txBody><a:bodyPr/><a:p>"
-        '<a:r><a:rPr lang="en-US"/><a:t>神戸</a:t></a:r>'
-        '<a:r><a:rPr lang="ja-JP"/><a:t>マリオット</a:t></a:r>'
+        '<a:r><a:rPr lang="en-US"/><a:t>東京</a:t></a:r>'
+        '<a:r><a:rPr lang="ja-JP"/><a:t>タワー</a:t></a:r>'
         "</a:p></p:txBody></p:sp>"
     )
     root = _romanize_slide_fragment(inner)
     texts = [r.find(A + "t").text for r in root.findall(".//" + A + "r")]
-    assert texts == ["Kōbe", " Mariotto"]
+    assert texts == ["Tōkyō", " Tawā"]
 
 
 # --- Sibling guard ----------------------------------------------------------
